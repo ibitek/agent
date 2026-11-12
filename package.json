@@ -1,0 +1,13 @@
+{
+  "name": "synvio-agents",
+  "private": true,
+  "version": "0.2.0",
+  "scripts": {
+    "build": "npm --prefix web run build",
+    "dev": "npm --prefix web run dev",
+    "test:ui": "node --test web/src/taskPolling.test.mjs"
+  },
+  "engines": {
+    "node": "24.x"
+  }
+}

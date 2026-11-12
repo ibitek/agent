@@ -1,0 +1,14 @@
+.git
+.venv
+web/node_modules
+node_modules
+tests
+examples
+sandbox
+.github
+.synvio
+.synvio-runtime
+*.sqlite*
+.env*
+work
+outputs

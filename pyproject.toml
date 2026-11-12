@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "synvio-core-agent"
+version = "0.1.0"
+description = "SYNVIO Core Agent - configurable local/cloud/hybrid AI agent"
+requires-python = ">=3.12,<3.14"
+dependencies = ["openjarvis @ git+https://github.com/open-jarvis/OpenJarvis.git@68d4290663984508db94a6a59ade45c2b17859ed", "click>=8.1"]
+
+[project.optional-dependencies]
+cloud = ["vercel>=0.3,<1", "httpx>=0.28,<1", "fastapi>=0.115,<1"]
+web = ["fastapi>=0.115,<1", "uvicorn[standard]>=0.30,<1"]
+dev = ["pytest>=8", "httpx>=0.27,<1", "fakeredis[lua]>=2.32,<3"]
+
+[project.scripts]
+synvio = "synvio.cli:main"
+synvio-web = "synvio.web_cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = [
+    "local: requires local execution setup",
+    "cloud: requires cloud API keys",
+    "step: agent step limit test",
+]
