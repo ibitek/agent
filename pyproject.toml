@@ -7,7 +7,14 @@ name = "synvio-core-agent"
 version = "0.1.0"
 description = "SYNVIO Core Agent - configurable local/cloud/hybrid AI agent"
 requires-python = ">=3.12,<3.14"
-dependencies = ["openjarvis @ git+https://github.com/open-jarvis/OpenJarvis.git@68d4290663984508db94a6a59ade45c2b17859ed", "click>=8.1"]
+dependencies = [
+    "openjarvis @ git+https://github.com/open-jarvis/OpenJarvis.git@68d4290663984508db94a6a59ade45c2b17859ed",
+    "click==8.5.1",
+    "fastapi==0.162.5",
+    "httpx==0.28.1",
+    "uvicorn[standard]==0.54.0",
+    "vercel==0.12.2",
+]
 
 [project.optional-dependencies]
 cloud = ["vercel>=0.3,<1", "httpx>=0.28,<1", "fastapi>=0.115,<1"]
