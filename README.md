@@ -122,3 +122,20 @@ npm run build
 - Nie przechowuj repozytoriów produkcyjnych ani sekretów w projekcie testowym. To początkowe wdrożenie dla jednego właściciela, bez funkcji współdzielenia kont.
 
 Dokumentacja dostawcy: [Python](https://vercel.com/docs/functions/runtimes/python), [Sandbox](https://vercel.com/docs/sandbox), [limity Hobby](https://vercel.com/docs/plans/hobby).
+
+## Logowanie przez Supabase
+
+Opcjonalny tryb właściciela: `SYNVIO_AUTH_PROVIDER=supabase`, `SUPABASE_URL`,
+`SUPABASE_PUBLISHABLE_KEY` i `SYNVIO_ALLOWED_EMAILS` (lista dozwolonych e-maili).
+W tym trybie `SYNVIO_PASSWORD` i `SYNVIO_SESSION_SECRET` nie są potrzebne.
+Formularz używa istniejącego, potwierdzonego konta Supabase z hasłem.
+Brak rejestracji w Core; samo konto Supabase bez wpisu na liście nie daje dostępu.
+Hasło jest przekazywane wyłącznie do Supabase Auth; token dostępu pozostaje
+w ciasteczku HttpOnly, Secure, SameSite=Strict, maksymalnie przez godzinę.
+API sprawdza użytkownika w Supabase przy każdym żądaniu; brak konfiguracji
+lub awaria dostawcy blokuje dostęp. Po wygaśnięciu wymagane jest ponowne logowanie.
+Wylogowanie unieważnia bieżącą sesję odświeżania Supabase i usuwa ciasteczko;
+wydany token dostępu może pozostać ważny do swojego terminu wygaśnięcia.
+Nie jest używany klucz service_role; logowanie nie zmienia tabel ani konfiguracji
+pozostałych aplikacji korzystających z projektu Supabase. Magazyn zadań nadal
+wymaga osobnej konfiguracji Redis.

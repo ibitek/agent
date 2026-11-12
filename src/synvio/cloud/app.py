@@ -20,7 +20,7 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
-from . import auth
+from . import auth, supabase_auth
 from .common import JOB_SECONDS, PROJECT, estimate, greeting, limits, local_reply, model_catalog, public_error, resolve_model, safe_path
 from .store import StorageUnavailable, Store, ready as storage_ready
 from .setup import prepare as prepare_sandbox, saved_snapshot
@@ -33,6 +33,7 @@ app = FastAPI(title="SYNVIO Agents", docs_url=None, redoc_url=None, openapi_url=
 
 
 class Login(BaseModel):
+    email: str = Field(default="", max_length=254)
     password: str = Field(min_length=1, max_length=256)
 
 
@@ -77,27 +78,33 @@ async def storage_error(request, exc):
 
 @app.get("/api/session")
 def session(request: Request):
-    return {"cloud": True, "configured": auth.configured(), "authenticated": auth.valid(request.cookies.get(auth.cookie_name()))}
+    return {"cloud": True, "configured": auth.configured(), "auth_provider": "supabase" if supabase_auth.enabled() else "password", "authenticated": auth.valid(request.cookies.get(auth.cookie_name()))}
 
 
 @app.post("/api/login")
 def login(request: Request, body: Login):
     auth.check_origin(request)
     if not auth.configured():
-        raise HTTPException(503, "Ustaw SYNVIO_PASSWORD (min. 20 znaków) i SYNVIO_SESSION_SECRET (min. 32 znaki) w Vercelu.")
+        raise HTTPException(503, "Logowanie wymaga konfiguracji administratora.")
     if storage_ready():
         identity = hashlib.sha256((request.client.host if request.client else "unknown").encode()).hexdigest()
         if not get_store().meter(f"login:{identity}", 10, 300):
             raise HTTPException(429, "Za dużo prób logowania. Poczekaj pięć minut.")
-    if not auth.password_matches(body.password):
+    if supabase_auth.enabled():
+        token, ttl = supabase_auth.login(body.email, body.password)
+    elif not auth.password_matches(body.password):
         raise HTTPException(401, "Niepoprawne hasło.")
+    else:
+        token, ttl = auth.issue(), auth.TTL
     response = JSONResponse({"cloud": True, "authenticated": True, "configured": True})
-    response.set_cookie(auth.cookie_name(), auth.issue(), httponly=True, secure=os.environ.get("SYNVIO_CLOUD_DEV") != "1", samesite="strict", max_age=auth.TTL, path="/")
+    response.set_cookie(auth.cookie_name(), token, httponly=True, secure=os.environ.get("SYNVIO_CLOUD_DEV") != "1", samesite="strict", max_age=ttl, path="/")
     return response
 
 
 @app.post("/api/logout")
-def logout():
+def logout(request: Request):
+    if supabase_auth.enabled():
+        supabase_auth.request("POST", "logout?scope=local", token=request.cookies.get(auth.cookie_name()))
     response = JSONResponse({"authenticated": False})
     response.delete_cookie(auth.cookie_name(), path="/")
     return response

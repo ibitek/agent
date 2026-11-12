@@ -8,6 +8,7 @@ import time
 from urllib.parse import urlsplit
 
 from fastapi import HTTPException, Request
+from . import supabase_auth
 
 COOKIE = "__Host-synvio"
 TTL = 8 * 60 * 60
@@ -18,6 +19,8 @@ def cookie_name() -> str:
 
 
 def configured() -> bool:
+    if supabase_auth.enabled():
+        return supabase_auth.configured()
     return len(os.environ.get("SYNVIO_PASSWORD", "")) >= 20 and len(os.environ.get("SYNVIO_SESSION_SECRET", "")) >= 32
 
 
@@ -31,6 +34,8 @@ def issue() -> str:
 
 
 def valid(token: str | None) -> bool:
+    if supabase_auth.enabled():
+        return supabase_auth.valid(token)
     if not configured() or not token or len(token) > 128:
         return False
     try:
@@ -52,7 +57,7 @@ def check_origin(request: Request) -> None:
 
 def require(request: Request) -> None:
     if not configured():
-        raise HTTPException(503, "Administrator musi ustawić SYNVIO_PASSWORD i SYNVIO_SESSION_SECRET w Vercelu.")
+        raise HTTPException(503, "Administrator musi skonfigurować logowanie w Vercelu.")
     if not valid(request.cookies.get(cookie_name())):
         raise HTTPException(401, "Zaloguj się do SYNVIO.")
     if request.method not in {"GET", "HEAD", "OPTIONS"}:

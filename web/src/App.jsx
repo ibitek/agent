@@ -65,7 +65,7 @@ function App() {
         if (firstAvailable) setModelId(firstAvailable.id)
       }
       setWorkspace(w.items[0] || '')
-    }).catch((cause) => setError(`${cause.message}. Start the local SYNVIO API first.`))
+    }).catch((cause) => setError(session.cloud ? cause.message : `${cause.message}. Uruchom lokalne API SYNVIO.`))
   }, [refreshHistory, session?.authenticated])
 
   const selectTask = useCallback((id) => {
@@ -181,20 +181,21 @@ function App() {
 }
 
 function LoginPanel({session,onLogin}) {
+  const [email,setEmail] = useState('')
   const [password,setPassword] = useState('')
   const [busy,setBusy] = useState(false)
   const [error,setError] = useState('')
   async function login(event) {
     event.preventDefault(); setBusy(true); setError('')
     try {
-      const response = await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password})})
+      const response = await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})})
       const result = await response.json()
       if (!response.ok) throw Error(result.detail || 'Logowanie nie powiodło się.')
-      setPassword(''); onLogin(result)
+      setPassword(''); onLogin({...session,...result})
     } catch(cause) { setError(cause.message) }
     finally { setBusy(false) }
   }
-  return <main className="login-page"><form className="login-card" onSubmit={login}><div className="brand-mark"><Code2 size={22}/></div><div className="eyebrow">SYNVIO AGENTS</div><h1>Twoja przestrzeń<br/>do pracy z AI.</h1><p>Zaloguj się, aby rozmawiać i tworzyć projekty. Klucze API pozostają na serwerze.</p>{!session.configured && <div className="model-warning">Ustaw w Vercelu SYNVIO_PASSWORD (min. 20 znaków) i SYNVIO_SESSION_SECRET (min. 32 znaki), a następnie wykonaj Redeploy. To hasło do aplikacji, nie klucz OpenAI.</div>}<label htmlFor="login-password">Hasło dostępu</label><input id="login-password" type="password" autoComplete="current-password" value={password} onChange={(event)=>setPassword(event.target.value)} disabled={!session.configured || busy}/>{error && <p role="alert" className="model-warning">{error}</p>}<button type="submit" disabled={!session.configured || busy || !password}>{busy ? 'Logowanie…' : 'Wejdź do SYNVIO'}</button></form></main>
+  return <main className="login-page"><form className="login-card" onSubmit={login}><div className="brand-mark"><Code2 size={22}/></div><div className="eyebrow">SYNVIO AGENTS</div><h1>Twoja przestrzeń<br/>do pracy z AI.</h1><p>Zaloguj się, aby rozmawiać i tworzyć projekty. Klucze API pozostają na serwerze.</p>{!session.configured && <div className="model-warning">Logowanie nie jest jeszcze skonfigurowane. Administrator musi podłączyć usługę logowania.</div>}{session.auth_provider === 'supabase' && <><label htmlFor="login-email">E-mail</label><input id="login-email" type="email" autoComplete="username" required value={email} onChange={(event)=>setEmail(event.target.value)} disabled={!session.configured || busy}/></>}<label htmlFor="login-password">Hasło</label><input id="login-password" type="password" autoComplete="current-password" value={password} onChange={(event)=>setPassword(event.target.value)} disabled={!session.configured || busy}/>{error && <p role="alert" className="model-warning">{error}</p>}<button type="submit" disabled={!session.configured || busy || !password}>{busy ? 'Logowanie…' : 'Wejdź do SYNVIO'}</button></form></main>
 }
 
 
