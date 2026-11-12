@@ -207,6 +207,13 @@ def test_conversation_calls_model_once_without_tools(client, monkeypatch):
     assert len(calls) == 1
     assert calls[0][1] == {"model": "gpt-4o-mini", "temperature": 0.4, "max_tokens": 512}
     assert client.get("/api/tasks").json()["items"] == []
+    costs = client.get("/api/costs").json()
+    assert len(costs["chat"]) == 1
+    assert costs["chat"][0]["calls"][0]["state"] == "recorded"
+    assert costs["chat"][0]["calls"][0]["cached_input_tokens"] is None
+    response = client.post("/api/chat", json={"message": "Explain a function", "model_budget_usd": 0.000001})
+    assert response.status_code == 409
+    assert len(calls) == 1
 
 
 def test_sandbox_setup_requires_authenticated_owner(client):

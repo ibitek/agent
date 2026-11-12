@@ -21,6 +21,7 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
 from . import auth, supabase_auth
+from .metering import MeteredEngine, BudgetExceeded
 from .common import JOB_SECONDS, PROJECT, estimate, greeting, limits, local_reply, model_catalog, public_error, resolve_model, safe_path
 from .store import StorageUnavailable, Store, ready as storage_ready
 from .setup import prepare as prepare_sandbox, saved_snapshot
@@ -43,12 +44,14 @@ class Message(BaseModel):
 
 
 class Chat(BaseModel):
+    model_budget_usd: float = Field(default=0.01, gt=0, le=1, allow_inf_nan=False)
     message: str = Field(min_length=1, max_length=4000)
     model_id: str = "openai:low"
     history: list[Message] = Field(default_factory=list, max_length=12)
 
 
 class Task(BaseModel):
+    model_budget_usd: float = Field(default=0.10, gt=0, le=1, allow_inf_nan=False)
     task: str = Field(min_length=1, max_length=10000)
     workspace: str = PROJECT
     model_id: str = "openai:low"
@@ -165,21 +168,40 @@ async def chat(body: Chat):
         messages.extend(EngineMessage(role=Role(item.role), content=item.content) for item in body.history)
         messages.append(EngineMessage(role=Role.USER, content=body.message))
         config = SYNVIOConfig(provider="openai", engine="cloud", model_override=model)
+        cost_id = uuid.uuid4().hex
+        def persist(event):
+            store.put_json("chat-cost", cost_id, {"id": cost_id, "created_at": time.time(), **event})
+            store.call("ZADD", store.key("chat-cost-history"), time.time(), cost_id)
         with engine_for(config) as engine:
-            return engine.generate(messages, model=model, temperature=0.4, max_tokens=512)
+            metered = MeteredEngine(engine, model, body.model_budget_usd, persist)
+            result = metered.generate(messages, model=model, temperature=0.4, max_tokens=512)
+            return {**result, "cost_record": {"id": cost_id, **metered.summary()}}
 
     try:
         result = await asyncio.to_thread(generate)
+    except BudgetExceeded as exc:
+        raise HTTPException(409, str(exc)) from exc
     except Exception as exc:
         raise HTTPException(503, public_error(exc)) from exc
     usage = result.get("usage") or {}
-    return {"mode": "chat", "content": str(result.get("content") or ""), "model": model, "tokens": usage, "estimated_cost_usd": estimate(model, usage), "local_response": False}
+    return {"mode": "chat", "content": str(result.get("content") or ""), "model": model, "tokens": usage, "estimated_cost_usd": float(result["cost_record"]["estimated_cost_usd"]), "cost_record": result["cost_record"], "local_response": False}
 
 
 def task_id(value):
     if not re.fullmatch(r"[a-f0-9]{32}", value):
         raise HTTPException(404, "Zadanie nie istnieje.")
     return value
+
+
+@app.get("/api/costs")
+def cost_history():
+    if not storage_ready():
+        return {"currency": "USD", "scope": "model_only", "chat": [], "tasks": []}
+    store = get_store()
+    ids = store.call("ZREVRANGE", store.key("chat-cost-history"), 0, 49) or []
+    chats = [record for value in ids if (record := store.get_json("chat-cost", value))]
+    tasks = [{"id": task["id"], "cost_record": task["cost_record"]} for task in store.history(50) if task.get("cost_record")]
+    return {"currency": "USD", "scope": "model_only", "chat": chats, "tasks": tasks}
 
 
 def task_row(store, value):
@@ -207,7 +229,7 @@ def create_task(body: Task):
     store = get_store()
     now = time.time()
     value = uuid.uuid4().hex
-    item = {"id": value, "task": body.task, "workspace": PROJECT, "model": model, "model_id": body.model_id, "status": "queued", "created_at": now, "updated_at": now, "deadline": now + JOB_SECONDS + 60, "report": None, "error": None}
+    item = {"id": value, "model_budget_usd": body.model_budget_usd, "task": body.task, "workspace": PROJECT, "model": model, "model_id": body.model_id, "status": "queued", "created_at": now, "updated_at": now, "deadline": now + JOB_SECONDS + 60, "report": None, "error": None}
     if not store.create(item):
         raise HTTPException(429, "Projekt ma już aktywne zadanie. Poczekaj na jego zakończenie.")
     store.event(value, {"event": "task_queued"})

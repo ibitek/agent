@@ -28,6 +28,7 @@ function App() {
   const [workspace, setWorkspace] = useState('')
   const [modelId, setModelId] = useState('openai:low')
   const [mode, setMode] = useState('chat')
+  const [modelBudget,setModelBudget] = useState('0.10')
   const [conversation, setConversation] = useState([])
   const [prompt, setPrompt] = useState('')
   const [loading, setLoading] = useState(false)
@@ -100,7 +101,7 @@ function App() {
         const message = prompt.trim()
         const reply = await getJSON(`${API}/chat`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message, model_id: modelId, history: conversation.slice(-12).map(({role,content}) => ({role,content})) }),
+          body: JSON.stringify({ model_budget_usd: Number(modelBudget), message, model_id: modelId, history: conversation.slice(-12).map(({role,content}) => ({role,content})) }),
         })
         setConversation((previous) => [...previous, {role:'user',content:message}, {role:'assistant',content:reply.content,cost:reply.estimated_cost_usd,local:reply.local_response}])
         setPrompt('')
@@ -108,7 +109,7 @@ function App() {
       }
       const created = await getJSON(`${API}/tasks`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ task: prompt.trim(), workspace, model_id: modelId }),
+        body: JSON.stringify({ model_budget_usd: Number(modelBudget), task: prompt.trim(), workspace, model_id: modelId }),
       })
       setTasks((previous) => mergeTasks(previous, [{
         ...created, task: prompt.trim(), workspace,
@@ -172,7 +173,7 @@ function App() {
 
         {error && <div className="error-banner"><XCircle size={16} /><span>{error}</span><button onClick={() => setError('')} aria-label="Dismiss error"><XCircle size={15} /></button></div>}
 
-        {!selected && !activeTask ? <section className="welcome"><div className="welcome-icon"><Bot size={23} /></div><div className="eyebrow">{session.cloud ? 'SYNVIO AGENTS' : 'LOCAL AGENT WORKSPACE'}</div><div className="interaction-modes" role="group" aria-label="Tryb pracy"><button type="button" aria-pressed={mode === 'chat'} onClick={() => setMode('chat')}>Rozmowa</button><button type="button" aria-pressed={mode === 'task'} onClick={() => setMode('task')}>Zadanie</button></div><h1>{mode === 'chat' ? <>Porozmawiajmy.</> : <>Co mamy<br /><em>zbudować?</em></>}</h1><p>{mode === 'chat' ? 'Rozmowa bez dostępu do plików, narzędzi i testów. Zwykłe powitania są bezpłatne; pozostałe wiadomości korzystają z wybranego modelu.' : 'Agent może zmieniać pliki w wybranym projekcie i uruchamiać testy. Każde wysłane zadanie może naliczyć koszt API.'}</p>{mode === 'chat' && conversation.length > 0 && <div className="conversation" aria-label="Rozmowa">{conversation.map((message,index) => <article className={`chat-message ${message.role}`} key={index}><strong>{message.role === 'user' ? 'Ty' : 'SYNVIO'}</strong><p>{message.content}</p>{message.role === 'assistant' && <small>{message.local ? 'Odpowiedź lokalna · $0 · bez narzędzi' : `Bez narzędzi${Number.isFinite(message.cost) ? ` · szac. $${message.cost.toFixed(6)}` : ''}`}</small>}</article>)}</div>}{mode === 'task' && health?.can_prepare_tasks && <div className="sandbox-setup"><p>Jednorazowo przygotuj izolowane środowisko Pythona. Ta operacja zużywa limit Vercel Sandbox, ale nie uruchamia modelu AI.</p><button type="button" disabled={preparing} onClick={prepareSandbox}>{preparing ? 'Przygotowywanie…' : 'Przygotuj środowisko testów'}</button></div>}<TaskComposer {...{prompt,setPrompt,submitTask,workspace,modelId,setModelId,models,workspaces,loading,limits,mode,tasksAllowed,taskUnavailableReason}} /></section> : <TaskView {...{activeTask,events,logsReady,logsComplete,logRef,latestAssistant,cancelSelected}} />}
+        {!selected && !activeTask ? <section className="welcome"><div className="welcome-icon"><Bot size={23} /></div><div className="eyebrow">{session.cloud ? 'SYNVIO AGENTS' : 'LOCAL AGENT WORKSPACE'}</div><div className="interaction-modes" role="group" aria-label="Tryb pracy"><button type="button" aria-pressed={mode === 'chat'} onClick={() => setMode('chat')}>Rozmowa</button><button type="button" aria-pressed={mode === 'task'} onClick={() => setMode('task')}>Zadanie</button></div><h1>{mode === 'chat' ? <>Porozmawiajmy.</> : <>Co mamy<br /><em>zbudować?</em></>}</h1><p>{mode === 'chat' ? 'Rozmowa bez dostępu do plików, narzędzi i testów. Zwykłe powitania są bezpłatne; pozostałe wiadomości korzystają z wybranego modelu.' : 'Agent może zmieniać pliki w wybranym projekcie i uruchamiać testy. Każde wysłane zadanie może naliczyć koszt API.'}</p>{mode === 'chat' && conversation.length > 0 && <div className="conversation" aria-label="Rozmowa">{conversation.map((message,index) => <article className={`chat-message ${message.role}`} key={index}><strong>{message.role === 'user' ? 'Ty' : 'SYNVIO'}</strong><p>{message.content}</p>{message.role === 'assistant' && <small>{message.local ? 'Odpowiedź lokalna · $0 · bez narzędzi' : `Bez narzędzi${Number.isFinite(message.cost) ? ` · szac. $${message.cost.toFixed(6)}` : ''}`}</small>}</article>)}</div>}{mode === 'task' && health?.can_prepare_tasks && <div className="sandbox-setup"><p>Jednorazowo przygotuj izolowane środowisko Pythona. Ta operacja zużywa limit Vercel Sandbox, ale nie uruchamia modelu AI.</p><button type="button" disabled={preparing} onClick={prepareSandbox}>{preparing ? 'Przygotowywanie…' : 'Przygotuj środowisko testów'}</button></div>}<TaskComposer {...{prompt,setPrompt,submitTask,workspace,modelId,setModelId,models,workspaces,loading,limits,mode,tasksAllowed,taskUnavailableReason,modelBudget,setModelBudget}} /></section> : <TaskView {...{activeTask,events,logsReady,logsComplete,logRef,latestAssistant,cancelSelected}} />}
 
         <footer className="footer"><span><ShieldCheck size={13} /> {session.cloud ? 'Projekty zapisują się w Twoim magazynie danych' : 'Tasks stay on this machine'}</span><span>Local agent runtime <i /> SYNVIO Core</span></footer>
       </main>
@@ -199,16 +200,16 @@ function LoginPanel({session,onLogin}) {
 }
 
 
-function TaskComposer({ prompt, setPrompt, submitTask, workspace, modelId, setModelId, models, workspaces, loading, limits, mode, tasksAllowed = true, taskUnavailableReason }) {
+function TaskComposer({ prompt, setPrompt, submitTask, workspace, modelId, setModelId, models, workspaces, loading, limits, mode, tasksAllowed = true, taskUnavailableReason, modelBudget, setModelBudget }) {
   const selectedModel = models.find((item) => item.id === modelId)
   const availableModels = models.filter((item) => item.available)
   return <form className="composer-wrap" onSubmit={submitTask}>
-    <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder={mode === 'chat' ? 'Napisz wiadomość…' : 'Opisz konkretne zmiany do wykonania…'} rows={3} maxLength={10000} aria-label={mode === 'chat' ? 'Wiadomość' : 'Task description'} />
+    <label className="limits-note">Limit kosztu modelu (USD) <input aria-label="Limit kosztu modelu w USD" type="number" min="0.000001" max="1" step="0.000001" required value={modelBudget} onChange={(event)=>setModelBudget(event.target.value)} /></label><textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder={mode === 'chat' ? 'Napisz wiadomość…' : 'Opisz konkretne zmiany do wykonania…'} rows={3} maxLength={10000} aria-label={mode === 'chat' ? 'Wiadomość' : 'Task description'} />
     <div className="composer-bottom"><div className="composer-options"><label className="select-pill"><Bot size={14} /><select value={modelId} onChange={(event) => setModelId(event.target.value)} aria-label="AI model" disabled={!models.length}>{models.map((item) => <option value={item.id} key={item.id} disabled={!item.available}>{item.label}{item.available ? '' : ' · unavailable'}</option>)}</select><ChevronDown size={13} /></label>{mode === 'task' && <span className="workspace-pill"><FolderOpen size={13} />{workspace ? workspace.split(/[\\/]/).filter(Boolean).at(-1) : 'Choose workspace'}</span>}</div><button className="send-button" disabled={loading || !prompt.trim() || (mode === 'task' && (!tasksAllowed || !workspaces.length || !selectedModel?.available))} aria-label={mode === 'chat' ? 'Wyślij wiadomość' : 'Start task'}>{loading ? <LoaderCircle className="spin" size={17} /> : <ArrowUp size={17} />}</button></div>
     {mode === 'task' && !tasksAllowed && <div className="model-warning">{taskUnavailableReason}</div>}
     {selectedModel && !selectedModel.available && <div className="model-warning">{selectedModel.unavailable_reason}</div>}
     {mode === 'task' && limits && <div className="limits-note"><span><Activity size={12} /> {limits.steps_per_attempt} steps</span><i /><span>{limits.tool_calls_per_task} tool calls</span><i /><span>{limits.attempts} attempt</span><i /><span>{limits.model_test_runs} model test runs</span></div>}
-    <div className="composer-caption">{selectedModel ? <>Model: <b>{selectedModel.model}</b> · Provider: <b>{selectedModel.provider}</b></> : <>No available provider model is configured.</>} <span>·</span> API keys remain in the backend environment.</div>
+    <div className="composer-caption">{selectedModel ? <>Model: <b>{selectedModel.model}</b> · Provider: <b>{selectedModel.provider}</b></> : <>No available provider model is configured.</>} <span>·</span> Limit dotyczy modelu, bez infrastruktury. Koszt jest szacunkiem, nie obciążeniem salda.</div>
   </form>
 }
 
@@ -216,6 +217,7 @@ function TaskView({ activeTask, events, logsReady, logsComplete, logRef, latestA
   if (!activeTask || !logsReady) return <div className="task-content" role="status"><LoaderCircle className="spin" size={18} /><p>Loading task status and execution log…</p></div>
   const isActive = activeTask.status === 'queued' || activeTask.status === 'running'
   const report = activeTask.report
+  const costRecord = report?.cost_record || activeTask.cost_record
   const limits = report?.limits || {}
   const tokens = report?.tokens || {}
   const files = [...new Map([...(report?.files_modified || []).map((path) => [path, { path, action: 'modified' }]), ...(report?.files_created || []).map((path) => [path, { path, action: 'created' }])]).values()]
@@ -231,7 +233,8 @@ function TaskView({ activeTask, events, logsReady, logsComplete, logRef, latestA
     {report && <div className="metrics-row"><Metric label="Steps" value={Number.isFinite(report.steps_used) && Number.isFinite(limits.global_steps) ? `${report.steps_used} / ${limits.global_steps}` : '—'} /><Metric label="Tool calls" value={Number.isFinite(report.tool_calls) && Number.isFinite(limits.global_tool_calls) ? `${report.tool_calls} / ${limits.global_tool_calls}` : '—'} /><Metric label="Attempts" value={Number.isFinite(report.attempts) && Number.isFinite(limits.max_repair_attempts) ? `${report.attempts} / ${limits.max_repair_attempts}` : '—'} /><Metric label="Duration" value={Number.isFinite(report.duration_seconds) ? `${report.duration_seconds.toFixed(1)}s` : '—'} /></div>}
     {report && <div className="result-details">
       {files.length > 0 && <div className="changed-files"><div className="section-heading"><div><FileText size={15} /><strong>Changed files</strong><span>({files.length})</span></div></div><div className="file-list">{files.map((file) => <FileResult key={`${file.action}:${file.path}`} taskId={activeTask.id} file={file} />)}</div></div>}
-      {tokenValuesAvailable && <div className="usage-card"><div className="section-heading"><div><Activity size={15} /><strong>Model usage</strong></div></div><div className="usage-values">{Number.isFinite(tokens.prompt_tokens) && <Metric label="Input tokens" value={tokens.prompt_tokens.toLocaleString()} />}{Number.isFinite(tokens.completion_tokens) && <Metric label="Output tokens" value={tokens.completion_tokens.toLocaleString()} />}{Number.isFinite(tokens.total_tokens) && <Metric label="Total tokens" value={tokens.total_tokens.toLocaleString()} />}{Number.isFinite(report.estimated_cost_usd) && <Metric label="Estimated API cost" value={`$${report.estimated_cost_usd.toFixed(6)}`} />}</div></div>}
+      {costRecord && <div className="usage-card"><div className="section-heading"><strong>Koszt modelu · USD</strong></div><div className="usage-values"><Metric label="Budżet" value={`$${costRecord.budget_usd}`} /><Metric label="Szacunek zużycia" value={`$${costRecord.estimated_cost_usd}`} /><Metric label="Koszt do wyjaśnienia" value={`$${costRecord.unresolved_reservation_usd}`} /></div><p className="composer-caption">Bez infrastruktury i podatków. To szacunek, nie obciążenie salda. Brak potwierdzenia zużycia pozostawia rezerwację do wyjaśnienia.</p></div>}
+      {tokenValuesAvailable && <div className="usage-card"><div className="section-heading"><div><Activity size={15} /><strong>Model usage</strong></div></div><div className="usage-values">{Number.isFinite(tokens.prompt_tokens) && <Metric label="Input tokens" value={tokens.prompt_tokens.toLocaleString()} />}{Number.isFinite(tokens.completion_tokens) && <Metric label="Output tokens" value={tokens.completion_tokens.toLocaleString()} />}{Number.isFinite(tokens.total_tokens) && <Metric label="Total tokens" value={tokens.total_tokens.toLocaleString()} />}{!costRecord && Number.isFinite(report.estimated_cost_usd) && <Metric label="Szacunek kosztu modelu" value={`$${report.estimated_cost_usd.toFixed(6)}`} />}</div></div>}
     </div>}
     <div className="section-heading"><div><Terminal size={15} /><strong>Execution log</strong><span>({events.length})</span></div><span className="live-label"><span className={isActive ? 'pulse-dot' : ''} />{isActive ? 'Live progress' : logsComplete ? 'Complete' : 'Synchronizing execution log…'}</span></div>
     <div className="event-log" ref={logRef}>{events.length === 0 ? <div className="log-empty"><Clock3 size={16} />Waiting for the first backend event…</div> : events.map((event, index) => <EventRow key={event.sequence || index} event={event} />)}</div>

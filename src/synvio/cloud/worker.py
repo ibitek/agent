@@ -10,6 +10,7 @@ from pathlib import Path
 from .common import estimate, limits, public_error, redact_data, validate_files
 from .sandbox_runner import VercelTestRunner, project_files
 from .store import Store
+from .metering import MeteredEngine
 
 
 def run(task_id):
@@ -35,7 +36,11 @@ def run(task_id):
         runner = VercelTestRunner(workspace, timeout=policy["test_timeout_seconds"])
         runner.check_available()
         with engine_for(config) as engine:
-            agent = DeveloperAgent(engine=engine, workspace=workspace, config=config, model=task["model"], test_runner=runner, on_event=lambda event: store.event(task_id, redact_data(event)))
+            def persist_cost(event):
+                store.fields(task_id, cost_record=event)
+                store.event(task_id, event)
+            metered = MeteredEngine(engine, task["model"], task.get("model_budget_usd", 0.10), persist_cost)
+            agent = DeveloperAgent(engine=metered, workspace=workspace, config=config, model=task["model"], test_runner=runner, on_event=lambda event: store.event(task_id, redact_data(event)))
             report = agent.fix(task["task"])
         content = project_files(workspace)
         store.put_json("files", task_id, content)
@@ -43,7 +48,15 @@ def run(task_id):
         result = redact_data(report.to_dict())
         result["workspace_root"] = "project"
         result["log_path"] = f"tasks/{task_id}/events"
-        result["estimated_cost_usd"] = estimate(task["model"], result.get("tokens") or {})
+        result["cost_record"] = metered.summary()
+        recorded = [call for call in metered.calls if call["state"] == "recorded"]
+        result["tokens"] = {
+            "prompt_tokens": sum(call["input_tokens"] for call in recorded),
+            "completion_tokens": sum(call["output_tokens"] for call in recorded),
+            "total_tokens": sum(call["input_tokens"] + call["output_tokens"] for call in recorded),
+        } if recorded else {}
+        result["tokens_complete"] = not bool(metered.reserved_unknown)
+        result["estimated_cost_usd"] = float(result["cost_record"]["estimated_cost_usd"])
         status = "completed" if report.success else "failed"
         store.fields(task_id, status=status, report=result, updated_at=time.time())
         store.event(task_id, {"event": "task_finished", "status": status, "success": report.success})
