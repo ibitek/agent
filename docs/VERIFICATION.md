@@ -237,3 +237,31 @@ Validation: 242 offline tests passed before the final retry regression; the
 updated 70-test cloud/intent/static-builder subset and 5 UI tests passed. Frontend
 production build passed. Real production Activity was inspected read-only; no
 paid model request or remote sandbox was started by the agent.
+
+
+## Studio appearance and model choice (2026-11-13)
+
+Added locally bundled Nunito Sans variable font (Fontsource, OFL), rounded
+controls, teal accents, subtle background grid and existing reduced-motion-aware
+entry/hover animations. Light/dark palette applies to chat, composer, model
+picker, preview controls, account and activity panels. Theme follows the OS on
+first visit, is saved per browser under synvio-theme-v1, and is applied before
+React mounts. No external font request or new analytics is introduced.
+
+Model picker shows distinct gpt-4o-mini, gpt-4o, gpt-4.1-mini and gpt-4.1 choices
+with input, cached-input and output token prices. Legacy model IDs still work.
+The owner-requested stronger-model opt-in is enabled in Production; the cheap
+default, daily request cap and per-message model budget remain unchanged.
+Provider account permissions are not guaranteed by the presence of an API key.
+New models were tested with mocked responses, not paid production generation.
+
+Rates and Chat Completions compatibility verified from official documentation:
+https://developers.openai.com/api/docs/models/gpt-4.1-mini
+https://developers.openai.com/api/docs/models/gpt-4.1
+Model adapters use existing CloudEngine without changing OpenJarvis.
+
+Validation: 246 offline Python tests, 5 UI polling tests and frontend production
+build passed. A loopback fixture verified light/dark appearance and persistence,
+model selection, and the side-by-side project preview. The fixture is explicitly
+marked DEMO and made no paid API calls. Cloud browser/desktop controls remain
+unconnected; the environment panel separates static editing from full execution.

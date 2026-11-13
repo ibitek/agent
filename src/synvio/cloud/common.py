@@ -8,6 +8,7 @@ from pathlib import PurePosixPath, PureWindowsPath
 from fastapi import HTTPException
 
 MODELS = {"openai:low": "gpt-4o-mini", "openai:medium": "gpt-4o", "openai:high": "gpt-4o"}
+MODELS.update({"openai:gpt-4.1-mini": "gpt-4.1-mini", "openai:gpt-4.1": "gpt-4.1"})
 PROJECT = "project"
 MAX_FILE_BYTES = 256 * 1024
 MAX_PROJECT_BYTES = 2 * 1024 * 1024
@@ -38,12 +39,21 @@ def resolve_model(model_id: str) -> str:
 
 
 def model_catalog() -> list[dict]:
+    from .metering import RATES
     ready = bool(os.environ.get("OPENAI_API_KEY", "").strip())
     result = []
     for mode, model in MODELS.items():
+        if mode == 'openai:high':
+            continue  # Retain old IDs for saved runs without duplicate choices.
         affordable = mode == "openai:low" or os.environ.get("SYNVIO_ALLOW_EXPENSIVE_MODELS") == "1"
         result.append({"id": mode, "provider": "openai", "engine": "cloud", "model": model, "reasoning_mode": mode.split(":")[1], "label": model, "available": ready and affordable, "unavailable_reason": None if ready and affordable else "The model API key is not configured." if not ready else "Model disabled in cost settings."})
+        rate = RATES[model]
+        result[-1].update(reasoning_mode=reasoning_for(mode), pricing={"input_per_million": str(rate[0]), "cached_input_per_million": str(rate[1]), "output_per_million": str(rate[2]), "currency": "USD"}, description={"gpt-4o-mini": "Everyday · lowest cost", "gpt-4.1-mini": "Balanced · coding and instructions", "gpt-4.1": "Advanced · complex coding", "gpt-4o": "General purpose"}[model])
     return result
+
+
+def reasoning_for(model_id):
+    return model_id.split(':')[1] if model_id in {'openai:low', 'openai:medium', 'openai:high'} else 'medium'
 
 
 def limits() -> dict:

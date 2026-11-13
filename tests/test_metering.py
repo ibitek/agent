@@ -109,3 +109,12 @@ def test_pinned_sdk_adapter_captures_real_usage_shape_without_network():
     assert meter.calls[0]["provider_response_id"] == "test-response"
     assert calls[0]["service_tier"] == "default"
     assert calls[0]["response_format"] == {"type": "json_object"}
+
+@pytest.mark.parametrize('model,expected', [('gpt-4.1-mini', Decimal('0.00032')), ('gpt-4.1', Decimal('0.0016'))])
+def test_added_models_charge_observed_cached_usage(model, expected):
+    cost, usage = usage_cost(model, {'prompt_tokens':1000, 'completion_tokens':100, 'prompt_tokens_details':{'cached_tokens':800}})
+    assert cost == expected
+    engine = FakeEngine()
+    with pytest.raises(BudgetExceeded):
+        MeteredEngine(engine, model, '0.000001').generate(MESSAGES, model=model)
+    assert engine.calls == 0

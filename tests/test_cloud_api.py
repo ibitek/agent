@@ -552,3 +552,19 @@ def test_explicit_retry_reuses_original_request_and_skips_empty_failed_snapshot(
     created = store.get(result.json()['task']['id'])
     assert created['task'] == original and created['parent_id'] is None
     assert created['runtime'] == 'web' and calls == []
+
+
+def test_stronger_catalog_is_distinct_priced_and_server_gated(client, monkeypatch):
+    login(client)
+    from synvio.cloud.common import resolve_model, reasoning_for
+    assert reasoning_for('openai:gpt-4.1') == 'medium'
+    assert reasoning_for('openai:gpt-4.1-mini') == 'medium'
+    with pytest.raises(Exception) as blocked:
+        resolve_model('openai:gpt-4.1')
+    assert blocked.value.status_code == 403
+    monkeypatch.setenv('SYNVIO_ALLOW_EXPENSIVE_MODELS', '1')
+    models = client.get('/api/models').json()['items']
+    assert len({item['model'] for item in models}) == len(models)
+    assert {item['model'] for item in models} == {'gpt-4o-mini','gpt-4o','gpt-4.1-mini','gpt-4.1'}
+    assert all(item['available'] and item['pricing']['currency']=='USD' for item in models)
+    assert resolve_model('openai:gpt-4.1') == 'gpt-4.1'

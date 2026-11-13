@@ -1,17 +1,19 @@
 """Model-only cost estimates and conservative preflight budgets, not a wallet.
 
-Rates verified 2026-11-12 against official model documentation. USD only.
+Rates verified 2026-11-13 against official model documentation. USD only.
 Missing cache details mean an upper estimate, never a fabricated cache hit.
 """
 import json
 from decimal import Decimal, ROUND_CEILING
 from types import SimpleNamespace
 
-RATE_VERSION = "openai-standard-text-2026-11-12"
+RATE_VERSION = "openai-standard-text-2026-11-13"
 RATE_SOURCE = "https://developers.openai.com/api/docs/models/"
 RATES = {
     "gpt-4o-mini": (Decimal("0.15"), Decimal("0.075"), Decimal("0.60")),
     "gpt-4o": (Decimal("2.50"), Decimal("1.25"), Decimal("10")),
+    "gpt-4.1-mini": (Decimal("0.40"), Decimal("0.10"), Decimal("1.60")),
+    "gpt-4.1": (Decimal("2.00"), Decimal("0.50"), Decimal("8.00")),
 }
 MILLION = Decimal(1_000_000)
 PRECISION = Decimal("0.000000001")
