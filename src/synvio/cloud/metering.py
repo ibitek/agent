@@ -43,7 +43,7 @@ class ObservedClient:
 def amount(value):
     number = Decimal(str(value))
     if not number.is_finite() or not Decimal("0") < number <= Decimal("1"):
-        raise ValueError("Budżet modelu musi być większy od 0 i nie większy niż 1 USD.")
+        raise ValueError("The AI budget must be greater than zero and at most 1 USD.")
     return number
 
 
@@ -53,7 +53,7 @@ def usd(value):
 
 def count(value):
     if type(value) is not int or value < 0:
-        raise ValueError("Brak poprawnych danych zużycia od dostawcy.")
+        raise ValueError("The provider did not return valid usage data.")
     return value
 
 
@@ -65,7 +65,7 @@ def usage_cost(model, usage):
     if cached is not None:
         cached = count(cached)
         if cached > incoming:
-            raise ValueError("Niepoprawna liczba tokenów cache.")
+            raise ValueError("Invalid cached-token count.")
     rate_in, rate_cache, rate_out = RATES[model]
     cost = ((incoming - (cached or 0)) * rate_in + (cached or 0) * rate_cache + outgoing * rate_out) / MILLION
     return cost, {"input_tokens": incoming, "output_tokens": outgoing, "cached_input_tokens": cached, "cache_observed": cached is not None}
@@ -81,7 +81,7 @@ class MeteredEngine:
     """
     def __init__(self, engine, model, budget_usd, persist=lambda event: None):
         if model not in RATES:
-            raise ValueError("Model nie ma zatwierdzonego cennika.")
+            raise ValueError("No approved rate card exists for this model.")
         self.engine, self.model = engine, model
         self.budget = amount(budget_usd)
         self.spent = Decimal(0)
@@ -95,7 +95,7 @@ class MeteredEngine:
         client = getattr(inner, "_openai_client", None)
         if client is not None:
             if str(client.base_url).rstrip("/") != "https://api.openai.com/v1":
-                raise ValueError("Cennik budżetu wymaga standardowego API OpenAI.")
+                raise ValueError("The budget rate card requires the standard OpenAI endpoint.")
             self.observed = ObservedClient(client.with_options(max_retries=0, timeout=60))
             inner._openai_client = self.observed
 
@@ -110,23 +110,25 @@ class MeteredEngine:
                 "invoice_verified": False, "calls": self.calls}
 
     def generate(self, messages, *, model, max_tokens=1024, **kwargs):
-        if self.blocked or model != self.model or kwargs.keys() - {"temperature"}:
-            raise BudgetExceeded("Wywołanie zablokowane: model, opcje lub poprzedni koszt wymagają weryfikacji.")
+        if self.blocked or model != self.model or kwargs.keys() - {"temperature", "response_format"}:
+            raise BudgetExceeded("Call blocked: the model, options or previous cost require review.")
+        if "response_format" in kwargs and kwargs["response_format"] != {"type": "json_object"}:
+            raise BudgetExceeded("Only the fixed JSON response format is supported by this budget guard.")
         messages = list(messages)
         payload = []
         for message in messages:
             content = message.content
             if not isinstance(content, str):
-                raise BudgetExceeded("Kontrola budżetu obsługuje tylko wiadomości tekstowe.")
+                raise BudgetExceeded("Budget checks currently support text messages only.")
             payload.append({"role": str(message.role), "content": content})
         output_limit = count(max_tokens)
         if not 1 <= output_limit <= 16384:
-            raise BudgetExceeded("Niepoprawny limit odpowiedzi.")
+            raise BudgetExceeded("Invalid response limit.")
         input_upper = len(json.dumps(payload, ensure_ascii=False).encode("utf-8")) + 1024 + 32 * len(payload)
         rate_in, _, rate_out = RATES[model]
         reservation = (input_upper * rate_in + output_limit * rate_out) / MILLION
         if self.spent + self.reserved_unknown + reservation > self.budget:
-            raise BudgetExceeded("Osiągnięto budżet modelu. Kolejne wywołanie nie zostało wysłane.")
+            raise BudgetExceeded("The AI budget has been reached. No further model call was sent.")
         entry = {"sequence": len(self.calls) + 1, "model": model, "state": "reserved", "reserved_usd": usd(reservation)}
         self.calls.append(entry)
         self.reserved_unknown += reservation

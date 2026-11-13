@@ -103,8 +103,9 @@ def test_pinned_sdk_adapter_captures_real_usage_shape_without_network():
     engine = CloudEngine.__new__(CloudEngine)
     engine._openai_client = Client()
     meter = MeteredEngine(engine, "gpt-4o-mini", "0.1")
-    result = meter.generate([Message(role=Role.USER, content="hello")], model="gpt-4o-mini", max_tokens=100)
+    result = meter.generate([Message(role=Role.USER, content="hello JSON")], model="gpt-4o-mini", max_tokens=100, response_format={"type": "json_object"})
     assert result["usage"]["prompt_tokens_details"]["cached_tokens"] == 800
     assert meter.summary()["estimated_cost_usd"] == "0.000150000"
     assert meter.calls[0]["provider_response_id"] == "test-response"
     assert calls[0]["service_tier"] == "default"
+    assert calls[0]["response_format"] == {"type": "json_object"}

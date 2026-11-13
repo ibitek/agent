@@ -52,22 +52,22 @@ def check_origin(request: Request) -> None:
     expected = request.headers.get("host", "").lower()
     local = os.environ.get("SYNVIO_CLOUD_DEV") == "1"
     if source.netloc.lower() != expected or source.scheme not in ({"https", "http"} if local else {"https"}):
-        raise HTTPException(403, "Odrzucono żądanie z innej strony.")
+        raise HTTPException(403, "Requests from another site are not allowed.")
 
 
 def require(request: Request) -> None:
     if not configured():
-        raise HTTPException(503, "Administrator musi skonfigurować logowanie w Vercelu.")
+        raise HTTPException(503, "The owner must configure sign-in in Vercel.")
     if request.url.path.startswith("/api/editor/") and supabase_auth.enabled():
         authorization = request.headers.get("authorization", "")
         if authorization.startswith("Bearer "):
             if not supabase_auth.valid(authorization[7:]):
-                raise HTTPException(401, "Zaloguj się do SYNVIO.")
+                raise HTTPException(401, "Sign in to SYNVIO.")
             if request.headers.get("origin"):
                 check_origin(request)
             return
     if not valid(request.cookies.get(cookie_name())):
-        raise HTTPException(401, "Zaloguj się do SYNVIO.")
+        raise HTTPException(401, "Sign in to SYNVIO.")
     if request.method not in {"GET", "HEAD", "OPTIONS"}:
         check_origin(request)
 

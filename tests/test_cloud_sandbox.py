@@ -81,7 +81,7 @@ def test_missing_snapshot_never_runs_host_tests(tmp_path, monkeypatch):
     monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: pytest.fail("Host subprocess must never run"))
     workspace = Workspace(tmp_path)
     workspace.write_text("test_ok.py", "def test_ok(): pass")
-    with pytest.raises(RuntimeError, match="Nie wykonano testów"):
+    with pytest.raises(RuntimeError, match="No tests ran on the host"):
         VercelTestRunner(workspace).run()
 
 

@@ -42,7 +42,7 @@ class VercelTestRunner(TestRunner):
 
         snapshot = os.environ.get("SYNVIO_SANDBOX_SNAPSHOT", "")
         if not snapshot:
-            raise RuntimeError("Brak przygotowanego środowiska testów; model nie został uruchomiony.")
+            raise RuntimeError("The execution environment is not prepared; no model was called.")
         with sandbox.create_sandbox(source=SnapshotSource(snapshot_id=snapshot), network_policy=NetworkPolicy.deny_all(), execution_time_limit=30, env={}, ports=[]) as box:
             box.run_command(PYTHON, ["-c", "import pytest; print(pytest.__version__)"], capture_output=True, kill_after=10, check=True)
 
@@ -55,7 +55,7 @@ class VercelTestRunner(TestRunner):
         files = project_files(self.workspace)
         snapshot = os.environ.get("SYNVIO_SANDBOX_SNAPSHOT", "")
         if not snapshot:
-            raise RuntimeError("Brak przygotowanego środowiska testów. Nie wykonano testów na serwerze hosta.")
+            raise RuntimeError("The execution environment is not prepared. No tests ran on the host server.")
         from vercel.sandbox import NetworkPolicy, SandboxResources, SnapshotSource
         from vercel.sandbox import sync as sandbox
 

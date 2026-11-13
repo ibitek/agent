@@ -29,7 +29,7 @@ def run(task_id):
 
         source = store.get_json("files", task["parent_id"]) if task.get("parent_id") else store.project()
         if source is None:
-            raise RuntimeError("Wersja plików poprzedniego zadania wygasła. Nie uruchomiono modelu.")
+            raise RuntimeError("The previous file snapshot expired. No model was called.")
         baseline = validate_files(source)
         store.put_json("baseline", task_id, baseline)
         workspace = Workspace.from_files(baseline, root=Path(temporary.name) / "project")
@@ -39,6 +39,26 @@ def run(task_id):
         # Test infrastructure must be ready before opening the paid model engine.
         runner = VercelTestRunner(workspace, timeout=policy["test_timeout_seconds"])
         runner.check_available()
+        if task.get("operation") == "verify":
+            started = time.monotonic()
+            outcome = runner.run()
+            test = outcome.to_dict()
+            content = project_files(workspace)
+            # Verification is read-only: do not publish a global project update.
+            store.put_json("files", task_id, content)
+            store.put_json("thread-head", task.get("thread_id", task_id), task_id)
+            cost = MeteredEngine(object(), task["model"], task.get("model_budget_usd", 0.10)).summary()
+            result = {"task": task["task"], "success": outcome.passed,
+                      "reason": "tests_passed" if outcome.passed else "tests_failed",
+                      "operation": "verify", "files_created": [], "files_modified": [],
+                      "tests": [test], "final_test": test, "tokens": {}, "steps_used": 0,
+                      "tool_calls": 0, "attempts": 1, "duration_seconds": time.monotonic() - started,
+                      "estimated_cost_usd": 0.0, "cost_record": cost,
+                      "attempt_details": [{"final_answer": "The checks passed. No project files were changed." if outcome.passed else "The checks failed. No project files were changed. See the actual output."}]}
+            status = "completed" if outcome.passed else "failed"
+            store.fields(task_id, status=status, report=result, cost_record=cost, updated_at=time.time())
+            store.event(task_id, {"event": "task_finished", "status": status, "success": outcome.passed})
+            return 0
         with engine_for(config) as engine:
             def persist_cost(event):
                 store.fields(task_id, cost_record=event)

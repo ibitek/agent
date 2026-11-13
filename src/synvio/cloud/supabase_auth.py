@@ -24,12 +24,12 @@ def request(method, path, *, token=None, payload=None):
     try:
         response = httpx.request(method, os.environ["SUPABASE_URL"].rstrip("/") + "/auth/v1/" + path, headers=headers, json=payload, timeout=10)
         if response.status_code >= 500 or response.status_code == 429:
-            raise HTTPException(503, "Logowanie jest chwilowo niedostępne. Spróbuj później.")
+            raise HTTPException(503, "Sign-in is temporarily unavailable. Please try again later.")
         if not response.is_success:
             return None
         return response.json() if response.content else {}
     except (httpx.HTTPError, ValueError):
-        raise HTTPException(503, "Nie można połączyć się z usługą logowania.") from None
+        raise HTTPException(503, "Unable to connect to the sign-in service.") from None
 
 
 def allowed(user):
@@ -44,8 +44,8 @@ def valid(token):
 
 def login(email, password):
     if email.strip().lower() not in owners():
-        raise HTTPException(401, "Niepoprawny e-mail lub hasło albo brak dostępu.")
+        raise HTTPException(401, "Incorrect email or password, or access is not allowed.")
     data = request("POST", "token?grant_type=password", payload={"email": email.strip(), "password": password})
     if not data or not allowed(data.get("user")) or not data.get("access_token"):
-        raise HTTPException(401, "Niepoprawny e-mail lub hasło albo brak dostępu.")
+        raise HTTPException(401, "Incorrect email or password, or access is not allowed.")
     return data["access_token"], min(int(data.get("expires_in", 3600)), 3600)

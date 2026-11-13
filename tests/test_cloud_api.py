@@ -345,3 +345,126 @@ def test_elongated_greeting_never_requires_redis_or_provider(client, monkeypatch
     monkeypatch.delenv("OPENAI_API_KEY")
     monkeypatch.delenv("UPSTASH_REDIS_REST_TOKEN")
     assert client.post("/api/chat", json={"message": "yooo"}).json()["local_response"] is True
+
+
+def assistant_engine(monkeypatch, actions):
+    from synvio import runtime
+    calls = []
+    class Engine:
+        def generate(self, messages, **kwargs):
+            calls.append((messages, kwargs))
+            action = actions.pop(0)
+            return {"content": json.dumps(action), "usage": {"prompt_tokens": 100, "completion_tokens": 10}}
+    @contextmanager
+    def engine(config):
+        yield Engine()
+    monkeypatch.setattr(runtime, "engine_for", engine)
+    return calls
+
+
+def test_unified_greeting_is_free_english_durable_and_idempotent(client, monkeypatch):
+    login(client)
+    monkeypatch.delenv("OPENAI_API_KEY")
+    payload = {"request_id": "b" * 32, "message": "siema"}
+    response = client.post("/api/assistant", json=payload)
+    assert response.status_code == 200
+    assert response.json()["message"]["content"].startswith("Hi!")
+    assert response.json()["task"] is None
+    assert response.json()["message"]["local_response"]
+    assert client.post("/api/assistant", json=payload).json() == response.json()
+    conversation = client.get("/api/conversations/" + "b" * 32).json()
+    assert len(conversation["messages"]) == 2
+    assert len(client.get("/api/conversations").json()["items"]) == 1
+    payload["message"] = "different"
+    assert client.post("/api/assistant", json=payload).status_code == 409
+
+
+def test_unified_inspection_reads_real_files_without_writes_or_tests(client, monkeypatch):
+    login(client)
+    store = cloud.get_store()
+    store.put_json("project", "default", {"calculator.py": "def add(a, b): return a + b"})
+    calls = assistant_engine(monkeypatch, [{"action": "list"}, {"action": "read", "path": "calculator.py"}, {"action": "reply", "text": "The project adds two numbers."}])
+    response = client.post("/api/assistant", json={"request_id": "c" * 32, "message": "Check what this project does without changing it"})
+    assert response.status_code == 200
+    assert response.json()["message"]["inspection"] == ["Listed project files", "Read calculator.py"]
+    assert response.json()["task"] is None
+    assert len(calls) == 3
+    assert "def add" in calls[-1][0][-1].content
+    assert "Default to" in calls[0][0][0].content and "English" in calls[0][0][0].content
+    assert store.project() == {"calculator.py": "def add(a, b): return a + b"}
+    assert store.history(50) == []
+
+
+def test_question_cannot_start_implementation_even_if_model_misroutes(client, monkeypatch):
+    login(client)
+    calls = assistant_engine(monkeypatch, [{"action": "execute", "task": "Rewrite the calculator"}])
+    first = client.post("/api/assistant", json={"request_id": "d" * 32, "message": "How does the calculator work?"})
+    assert first.json()["message"]["kind"] == "clarification"
+    assert first.json()["task"] is None
+    assert cloud.get_store().history(50) == []
+    second = client.post("/api/assistant", json={"request_id": "e" * 32, "conversation_id": "d" * 32, "message": "yes"})
+    assert second.status_code == 200
+    assert second.json()["task"]["status"] == "queued"
+    assert len(calls) == 1
+
+
+def test_unified_execution_shares_budget_and_never_queues_twice(client, monkeypatch):
+    login(client)
+    calls = assistant_engine(monkeypatch, [{"action": "execute", "task": "Build a calculator and tests"}])
+    payload = {"request_id": "f" * 32, "message": "Build a calculator", "model_budget_usd": 0.1}
+    first = client.post("/api/assistant", json=payload)
+    assert first.status_code == 200
+    value = first.json()["task"]["id"]
+    task = cloud.get_store().get(value)
+    cost = float(first.json()["message"]["cost_record"]["estimated_cost_usd"])
+    assert task["model_budget_usd"] == pytest.approx(0.1 - cost)
+    assert client.post("/api/assistant", json=payload).json() == first.json()
+    assert len(calls) == 1 and len(cloud.get_store().history(50)) == 1
+
+
+def test_unified_execution_reports_missing_runtime_without_starting_work(client, monkeypatch):
+    login(client)
+    assistant_engine(monkeypatch, [{"action": "execute", "task": "Create a page"}])
+    monkeypatch.setattr(cloud, "tasks_ready", lambda: False)
+    result = client.post("/api/assistant", json={"request_id": "1" * 32, "message": "Create a page"})
+    assert result.status_code == 200
+    assert result.json()["message"]["kind"] == "setup_required"
+    assert result.json()["task"] is None
+    assert cloud.get_store().history(50) == []
+
+
+def test_unified_requested_verification_queues_readonly_operation(client, monkeypatch):
+    login(client)
+    assistant_engine(monkeypatch, [{"action": "verify", "task": "Run the existing test suite"}])
+    result = client.post("/api/assistant", json={"request_id": "2" * 32, "message": "Run the existing tests without changing files"})
+    assert result.status_code == 200
+    value = result.json()["task"]["id"]
+    assert cloud.get_store().get(value)["operation"] == "verify"
+
+
+def test_verification_worker_never_opens_model_or_publishes_project_changes(client, monkeypatch):
+    from types import SimpleNamespace
+    from synvio.cloud import worker
+    from synvio import runtime
+    login(client)
+    value = client.post("/api/tasks", json={"task": "Run existing tests", "operation": "verify"}).json()["id"]
+    store = cloud.get_store()
+    before = {"test_ok.py": "def test_ok(): pass"}
+    store.put_json("project", "default", before)
+    store.fields(value, status="running")
+    monkeypatch.setattr(runtime, "engine_for", lambda *args: pytest.fail("Verification must not open a model"))
+    class Runner:
+        def __init__(self, workspace, timeout):
+            self.workspace = workspace
+        def check_available(self):
+            pass
+        def run(self):
+            assert self.workspace.read_text("test_ok.py") == before["test_ok.py"]
+            return SimpleNamespace(passed=True, to_dict=lambda: {"passed": True, "stdout_tail": "1 passed", "returncode": 0})
+    monkeypatch.setattr(worker, "VercelTestRunner", Runner)
+    assert worker.run(value) == 0
+    result = store.get(value)
+    assert result["status"] == "completed"
+    assert result["report"]["files_modified"] == []
+    assert result["report"]["estimated_cost_usd"] == 0
+    assert store.project() == before

@@ -24,10 +24,10 @@ def ready() -> bool:
 class Store:
     def __init__(self):
         if not ready():
-            raise StorageUnavailable("Podłącz Upstash Redis w zakładce Storage projektu Vercel.")
+            raise StorageUnavailable("Connect Upstash Redis in the project Storage settings.")
         self.url = (os.environ.get("UPSTASH_REDIS_REST_URL") or os.environ["KV_REST_API_URL"]).rstrip("/")
         if not self.url.startswith("https://"):
-            raise StorageUnavailable("Magazyn danych musi korzystać z HTTPS.")
+            raise StorageUnavailable("Storage must use HTTPS.")
         self.token = os.environ.get("UPSTASH_REDIS_REST_TOKEN") or os.environ["KV_REST_API_TOKEN"]
 
     def call(self, *command):
@@ -36,10 +36,10 @@ class Store:
             response.raise_for_status()
             data = response.json()
             if data.get("error"):
-                raise StorageUnavailable("Magazyn danych odrzucił operację.")
+                raise StorageUnavailable("Storage rejected the operation.")
             return data.get("result")
         except (httpx.HTTPError, ValueError) as exc:
-            raise StorageUnavailable("Nie można połączyć się z magazynem danych.") from exc
+            raise StorageUnavailable("Unable to connect to storage.") from exc
 
     def key(self, kind, value=""):
         return f"{PREFIX}{kind}:{value}"
@@ -102,7 +102,7 @@ class Store:
         return json.loads(raw) if raw else default
 
     def project(self):
-        return self.get_json("project", "default", {"README.md": "# Nowy projekt SYNVIO\n\nTwórz kod i testy w tym projekcie.\n"})
+        return self.get_json("project", "default", {"README.md": "# New SYNVIO project\n\nBuild your application and its tests in this project.\n"})
 
     def meter(self, bucket, limit, seconds):
         count = self.call("EVAL", "local n=redis.call('INCR',KEYS[1]);if n==1 then redis.call('EXPIRE',KEYS[1],ARGV[1]) end;return n", 1, self.key("quota", bucket), seconds)

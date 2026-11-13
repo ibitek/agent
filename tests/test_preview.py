@@ -15,7 +15,7 @@ def test_no_fake_preview_for_server_or_unbuilt_react():
     assert not build_preview({"app.py": "print('hi')"})["available"]
     result = build_preview({"index.html": '<script type="module" src="/src/main.jsx"></script>', "src/main.jsx": "export default <App/>"})
     assert not result["available"]
-    assert "zbudowania" in result["reason"]
+    assert "built" in result["reason"]
 
 
 def test_remote_assets_and_missing_dependencies_are_not_fetched():

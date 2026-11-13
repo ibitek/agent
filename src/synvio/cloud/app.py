@@ -25,6 +25,7 @@ from .metering import MeteredEngine, BudgetExceeded
 from .followups import context_for
 from .preview import build_preview
 from .editor import router as editor_router
+from .assistant import router as assistant_router
 from .common import JOB_SECONDS, PROJECT, estimate, greeting, limits, local_reply, model_catalog, public_error, resolve_model, safe_path
 from .store import StorageUnavailable, Store, ready as storage_ready
 from .setup import prepare as prepare_sandbox, saved_snapshot
@@ -35,6 +36,7 @@ os.environ.setdefault("OPENJARVIS_HOME", str(Path(tempfile.gettempdir()) / "synv
 
 app = FastAPI(title="SYNVIO Agents", docs_url=None, redoc_url=None, openapi_url=None)
 app.include_router(editor_router)
+app.include_router(assistant_router)
 
 
 class Login(BaseModel):
@@ -55,6 +57,7 @@ class Chat(BaseModel):
 
 
 class Task(BaseModel):
+    operation: Literal["edit", "verify"] = "edit"
     parent_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
     model_budget_usd: float = Field(default=0.10, gt=0, le=1, allow_inf_nan=False)
     task: str = Field(min_length=1, max_length=10000)
@@ -93,15 +96,15 @@ def session(request: Request):
 def login(request: Request, body: Login):
     auth.check_origin(request)
     if not auth.configured():
-        raise HTTPException(503, "Logowanie wymaga konfiguracji administratora.")
+        raise HTTPException(503, "Sign-in requires owner configuration.")
     if storage_ready():
         identity = hashlib.sha256((request.client.host if request.client else "unknown").encode()).hexdigest()
         if not get_store().meter(f"login:{identity}", 10, 300):
-            raise HTTPException(429, "Za dużo prób logowania. Poczekaj pięć minut.")
+            raise HTTPException(429, "Too many sign-in attempts. Please wait five minutes.")
     if supabase_auth.enabled():
         token, ttl = supabase_auth.login(body.email, body.password)
     elif not auth.password_matches(body.password):
-        raise HTTPException(401, "Niepoprawne hasło.")
+        raise HTTPException(401, "Incorrect password.")
     else:
         token, ttl = auth.issue(), auth.TTL
     response = JSONResponse({"cloud": True, "authenticated": True, "configured": True})
@@ -126,18 +129,18 @@ def tasks_ready():
 def health():
     enabled = tasks_ready()
     can_prepare = storage_ready() and os.environ.get("SYNVIO_ENABLE_TASKS") == "1" and not enabled
-    reason = None if enabled else "Najpierw przygotuj środowisko testów przyciskiem poniżej."
+    reason = None if enabled else "Prepare the execution environment using the button below."
     if not storage_ready():
-        reason = "Podłącz magazyn Redis w ustawieniach projektu."
+        reason = "Connect Redis storage in the project settings."
     elif os.environ.get("SYNVIO_ENABLE_TASKS") != "1":
-        reason = "Wykonywanie zadań jest wyłączone w ustawieniach serwera."
+        reason = "Project execution is disabled in the server settings."
     return {"status": "ok", "host": "vercel", "execution_backend": "vercel_sandbox", "cancellation": "queued_tasks_only", "tasks_enabled": enabled, "can_prepare_tasks": can_prepare, "tasks_unavailable_reason": reason}
 
 
 @app.post("/api/setup/sandbox")
 async def setup_sandbox():
     if not storage_ready() or os.environ.get("SYNVIO_ENABLE_TASKS") != "1":
-        raise HTTPException(503, "Podłącz Redis i ustaw SYNVIO_ENABLE_TASKS=1, aby przygotować zadania.")
+        raise HTTPException(503, "Connect Redis and enable SYNVIO_ENABLE_TASKS=1 to prepare the execution environment.")
     try:
         return await prepare_sandbox(get_store())
     except Exception as exc:
@@ -166,14 +169,14 @@ async def chat(body: Chat):
     model = resolve_model(body.model_id)
     store = get_store()
     if not store.allow_paid_request():
-        raise HTTPException(429, "Osiągnięto dzienny limit wiadomości i zadań. Nie wywołano modelu.")
+        raise HTTPException(429, "The daily request limit has been reached. No model was called.")
 
     def generate():
         from openjarvis.core.types import Message as EngineMessage, Role
         from synvio.config import SYNVIOConfig
         from synvio.runtime import engine_for
 
-        system = "Jesteś SYNVIO w trybie rozmowy. Odpowiadaj w języku użytkownika. Nie masz narzędzi, dostępu do plików ani testów. Nie twierdź, że wykonałeś zmiany; do wykonania zmian użytkownik musi wybrać Zadanie."
+        system = "You are SYNVIO. Default to English unless the user explicitly requests another language. Answer naturally. This legacy endpoint has no tools; never claim file changes or test results."
         messages = [EngineMessage(role=Role.SYSTEM, content=system)]
         messages.extend(EngineMessage(role=Role(item.role), content=item.content) for item in body.history)
         messages.append(EngineMessage(role=Role.USER, content=body.message))
@@ -199,7 +202,7 @@ async def chat(body: Chat):
 
 def task_id(value):
     if not re.fullmatch(r"[a-f0-9]{32}", value):
-        raise HTTPException(404, "Zadanie nie istnieje.")
+        raise HTTPException(404, "Run not found.")
     return value
 
 
@@ -219,11 +222,11 @@ def cost_history():
 def task_row(store, value):
     item = store.get(task_id(value))
     if not item:
-        raise HTTPException(404, "Zadanie nie istnieje.")
+        raise HTTPException(404, "Run not found.")
     if item["status"] in {"queued", "running"} and time.time() > item["deadline"]:
         if store.transition(value, item["status"], "failed"):
-            store.fields(value, error="Przekroczono czas zadania lub przerwano żądanie. Nie wznowiono płatnej pracy automatycznie.")
-            store.event(value, {"event": "task_error", "error": "Przekroczono czas zadania."})
+            store.fields(value, error="The run timed out or its request was interrupted. Paid work was not retried automatically.")
+            store.event(value, {"event": "task_error", "error": "The run timed out."})
             store.release(value)
         item = store.get(value)
     return {**item, "cancellation_supported": item["status"] == "queued", "download_available": bool(item.get("report"))}
@@ -232,9 +235,9 @@ def task_row(store, value):
 @app.post("/api/tasks", status_code=202)
 def create_task(body: Task):
     if greeting(body.task):
-        raise HTTPException(422, "To powitanie. Wybierz Rozmowa — odpowiedź będzie bezpłatna.")
+        raise HTTPException(422, "This is a greeting. Send it in the conversation for a free reply.")
     if body.workspace != PROJECT:
-        raise HTTPException(403, "Niepoprawny projekt. Serwer nie udostępnia lokalnych folderów.")
+        raise HTTPException(403, "Invalid project. This server does not expose local folders.")
     if not tasks_ready():
         raise HTTPException(503, health()["tasks_unavailable_reason"])
     model = resolve_model(body.model_id)
@@ -243,23 +246,23 @@ def create_task(body: Task):
     if body.parent_id:
         parent = task_row(store, body.parent_id)
         if parent["status"] in {"queued", "running"}:
-            raise HTTPException(409, "Poczekaj na zakończenie zadania przed wysłaniem kontynuacji.")
+            raise HTTPException(409, "Wait for this run to finish before continuing it.")
         if store.get_json("files", parent["id"]) is None:
-            raise HTTPException(409, "To zadanie nie ma zapisanej wersji plików do kontynuowania.")
+            raise HTTPException(409, "This run has no saved file version to continue from.")
         head = store.get_json("thread-head", parent.get("thread_id", parent["id"]), parent["id"])
         if head != parent["id"]:
-            raise HTTPException(409, "Ta rozmowa ma nowszą wersję. Otwórz ostatnie zadanie i kontynuuj je.")
+            raise HTTPException(409, "This conversation has a newer version. Continue from its latest run.")
     now = time.time()
     value = uuid.uuid4().hex
     item = {"id": value, "model_budget_usd": body.model_budget_usd, "task": body.task, "workspace": PROJECT, "model": model, "model_id": body.model_id, "status": "queued", "created_at": now, "updated_at": now, "deadline": now + JOB_SECONDS + 60, "report": None, "error": None}
-    item.update(parent_id=body.parent_id, thread_id=parent.get("thread_id", parent["id"]) if parent else value,
+    item.update(operation=body.operation, parent_id=body.parent_id, thread_id=parent.get("thread_id", parent["id"]) if parent else value,
                 followup_context=context_for(store, parent) if parent else [])
     if not store.create(item):
-        raise HTTPException(429, "Projekt ma już aktywne zadanie. Poczekaj na jego zakończenie.")
+        raise HTTPException(429, "This project already has an active run. Wait for it to finish.")
     if parent and store.get_json("thread-head", item["thread_id"], parent["id"]) != parent["id"]:
-        store.fields(value, status="cancelled", error="W międzyczasie zapisano nowszą wersję rozmowy.")
+        store.fields(value, status="cancelled", error="A newer conversation version was saved in the meantime.")
         store.release(value)
-        raise HTTPException(409, "Otwórz najnowszą wersję rozmowy.")
+        raise HTTPException(409, "Open the latest version of this conversation.")
     store.event(value, {"event": "task_queued", "parent_id": body.parent_id, "thread_id": item["thread_id"]})
     return {"id": value, "status": "queued", "cancellation": "queued_tasks_only", "run_required": True}
 
@@ -286,7 +289,7 @@ async def run_worker(store, value, oidc_token=None):
         code = await asyncio.to_thread(execute)
         final = store.get(value)
         if final and final["status"] == "running":
-            raise RuntimeError(f"Proces zadania zakończył się bez raportu (kod {code}).")
+            raise RuntimeError(f"The run exited without a report (code {code}).")
     except Exception as exc:
         if store.transition(value, "running", "failed"):
             store.fields(value, error=public_error(exc))
@@ -302,16 +305,16 @@ async def execute_task(value: str, request: Request):
     if item["status"] != "queued":
         return {"id": value, "status": item["status"]}
     if not tasks_ready():
-        raise HTTPException(503, "Środowisko zadań jest wyłączone.")
+        raise HTTPException(503, "The execution environment is disabled.")
     # Atomic claim: a browser retry must not launch a second model loop.
     claimed = store.call("EVAL", "if redis.call('GET',KEYS[2])==ARGV[1] and redis.call('HGET',KEYS[1],'status')=='\"queued\"' then redis.call('HSET',KEYS[1],'status','\"running\"');redis.call('EXPIRE',KEYS[2],ARGV[2]);return 1 else return 0 end", 2, store.key("task", value), store.key("project-lock"), value, JOB_SECONDS + 30)
     if not claimed:
         return {"id": value, "status": task_row(store, value)["status"]}
     if not store.allow_paid_request():
-        store.fields(value, status="failed", error="Dzienny limit wiadomości i zadań został osiągnięty.")
-        store.event(value, {"event": "task_error", "error": "Osiągnięto dzienny limit."})
+        store.fields(value, status="failed", error="The daily request limit has been reached.")
+        store.event(value, {"event": "task_error", "error": "The daily limit has been reached."})
         store.release(value)
-        raise HTTPException(429, "Osiągnięto dzienny limit. Nie wywołano modelu.")
+        raise HTTPException(429, "The daily limit has been reached. No model was called.")
     store.fields(value, updated_at=time.time(), deadline=time.time() + JOB_SECONDS + 20)
     await run_worker(store, value, request.headers.get("x-vercel-oidc-token"))
     return {"id": value, "status": task_row(store, value)["status"]}
@@ -343,7 +346,7 @@ def cancel(value: str):
     store = get_store()
     task_row(store, value)
     if not store.transition(value, "queued", "cancelled"):
-        raise HTTPException(409, "Można anulować wyłącznie zadanie oczekujące.")
+        raise HTTPException(409, "Only queued runs can be cancelled.")
     store.event(value, {"event": "task_cancelled"})
     store.release(value)
     return {"id": value, "status": "cancelled"}
@@ -373,7 +376,7 @@ def file_data(store, value, path):
     action = report_files(item).get(name)
     content = store.get_json("files", value, {})
     if not action or name not in content:
-        raise HTTPException(404, "Plik nie występuje w raporcie zmian zadania.")
+        raise HTTPException(404, "This file is not in the run change report.")
     return name, action, content[name]
 
 
@@ -389,7 +392,7 @@ def file_diff(value: str, path: str = Query(min_length=1, max_length=200)):
     name, action, content = file_data(store, value, path)
     baseline = store.get_json("baseline", value, {})
     if name not in baseline and action != "created":
-        return {"path": name, "available": False, "reason": "Brak zapisanego stanu początkowego.", "diff": None}
+        return {"path": name, "available": False, "reason": "No baseline snapshot was saved.", "diff": None}
     before = baseline.get(name, "")
     return {"path": name, "available": True, "diff": "".join(difflib.unified_diff(before.splitlines(True), content.splitlines(True), fromfile=f"a/{name}", tofile=f"b/{name}")), "read_only": True}
 
@@ -400,7 +403,7 @@ def download(value: str):
     task_row(store, value)
     content = store.get_json("files", value)
     if content is None:
-        raise HTTPException(404, "Zadanie nie ma jeszcze zapisanych plików.")
+        raise HTTPException(404, "This run does not have saved files yet.")
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
         for name, text in content.items():
@@ -416,5 +419,5 @@ def preview(value: str):
     if content is None:
         content = store.get_json("files", value)
     if content is None:
-        return {"available": False, "reason": "Zadanie nie ma jeszcze zapisanych plików podglądu."}
+        return {"available": False, "reason": "This run does not have preview files yet."}
     return build_preview(content)

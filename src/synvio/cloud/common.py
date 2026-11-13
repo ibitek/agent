@@ -23,17 +23,17 @@ def greeting(text: str) -> bool:
 
 
 def local_reply() -> dict:
-    return {"mode": "chat", "content": "Cześć! W czym mogę pomóc? Rozmowa nie zmienia plików. Do wykonania zmian wybierz Zadanie.", "model": None, "tokens": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}, "estimated_cost_usd": 0.0, "local_response": True}
+    return {"mode": "chat", "content": "Hi! What would you like to explore or build today?", "model": None, "tokens": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}, "estimated_cost_usd": 0.0, "local_response": True}
 
 
 def resolve_model(model_id: str) -> str:
     if model_id not in MODELS:
-        raise HTTPException(422, "Nieznany model.")
+        raise HTTPException(422, "Unknown model.")
     # The expensive model needs an explicit server-side opt-in as well.
     if model_id != "openai:low" and os.environ.get("SYNVIO_ALLOW_EXPENSIVE_MODELS") != "1":
-        raise HTTPException(403, "Ten model jest wyłączony w ustawieniach kosztów. Wybierz gpt-4o-mini.")
+        raise HTTPException(403, "This model is disabled in cost settings. Select gpt-4o-mini.")
     if not os.environ.get("OPENAI_API_KEY", "").strip():
-        raise HTTPException(503, "Brak OPENAI_API_KEY w ustawieniach serwera Vercel.")
+        raise HTTPException(503, "OPENAI_API_KEY is missing from the server settings.")
     return MODELS[model_id]
 
 
@@ -42,7 +42,7 @@ def model_catalog() -> list[dict]:
     result = []
     for mode, model in MODELS.items():
         affordable = mode == "openai:low" or os.environ.get("SYNVIO_ALLOW_EXPENSIVE_MODELS") == "1"
-        result.append({"id": mode, "provider": "openai", "engine": "cloud", "model": model, "reasoning_mode": mode.split(":")[1], "label": model, "available": ready and affordable, "unavailable_reason": None if ready and affordable else "Brak klucza API." if not ready else "Model wyłączony w ustawieniach kosztów."})
+        result.append({"id": mode, "provider": "openai", "engine": "cloud", "model": model, "reasoning_mode": mode.split(":")[1], "label": model, "available": ready and affordable, "unavailable_reason": None if ready and affordable else "The model API key is not configured." if not ready else "Model disabled in cost settings."})
     return result
 
 
@@ -52,24 +52,24 @@ def limits() -> dict:
 
 def safe_path(value: str) -> str:
     if not isinstance(value, str) or not value or len(value) > 200 or "\x00" in value or PureWindowsPath(value).drive:
-        raise ValueError("Niepoprawna ścieżka pliku.")
+        raise ValueError("Invalid file path.")
     value = value.replace("\\", "/")
     path = PurePosixPath(value)
     if path.is_absolute() or any(part in {"..", "."} or part.startswith(".") for part in value.split("/")):
-        raise ValueError("Plik musi być wewnątrz projektu; ukryte pliki są niedozwolone.")
+        raise ValueError("Files must stay inside the project; hidden files are not allowed.")
     return str(path)
 
 
 def validate_files(files: dict[str, str]) -> dict[str, str]:
     if len(files) > MAX_PROJECT_FILES:
-        raise ValueError("Projekt ma za dużo plików (maks. 100).")
+        raise ValueError("The project exceeds the 100-file limit.")
     result = {}
     for name, content in files.items():
         if not isinstance(content, str) or len(content.encode()) > MAX_FILE_BYTES:
-            raise ValueError("Plik przekracza limit 256 KiB.")
+            raise ValueError("The file exceeds the 256 KiB limit.")
         result[safe_path(name)] = content
     if len(json.dumps(result).encode()) > MAX_PROJECT_BYTES:
-        raise ValueError("Projekt przekracza limit 2 MiB.")
+        raise ValueError("The project exceeds the 2 MiB limit.")
     return result
 
 

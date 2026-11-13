@@ -1,0 +1,8 @@
+import { useState } from 'react'
+import { ArrowUp, Check, Code2, Copy, LoaderCircle } from 'lucide-react'
+export function WorkCard({task,taskId,onOpen}){
+  const busy=['queued','running'].includes(task?.status)
+  return <button className="chat-work-card" onClick={()=>onOpen(taskId)}><span className={`work-status-icon ${busy?'working':''}`}>{busy?<LoaderCircle className="spin" size={17}/>:task?.status==='completed'?<Check size={17}/>:<Code2 size={17}/>}</span><span><strong>{busy?(task.status==='queued'?'Work queued':'Working on your project'):task?.status==='completed'?(task.operation==='verify'?'Checks finished':'Changes ready'):task?.status==='failed'?'Run finished with issues':'Open saved work'}</strong><small>View progress, checks and preview</small></span><ArrowUp size={14}/></button>
+}
+export function MessageBody({content=''}){return <div className="message-text">{content.split(/(```[\s\S]*?```)/g).map((chunk,index)=>chunk.startsWith('```')?<CodeBlock key={index} content={chunk.slice(3,-3).replace(/^\w*\n/,'')}/>:<p key={index}>{chunk}</p>)}</div>}
+function CodeBlock({content}){const [copied,setCopied]=useState(false);return <div className="message-code"><button aria-label="Copy code" onClick={async()=>{try{await navigator.clipboard.writeText(content);setCopied(true)}catch{setCopied(false)}}}>{copied?<Check size={13}/>:<Copy size={13}/>} {copied?'Copied':'Copy'}</button><pre><code>{content}</code></pre></div>}

@@ -142,3 +142,47 @@ only. Secret values were never revealed or copied to the local workspace.
 Production metadata confirms model and Redis variable presence; authenticated
 UI reload confirmed the missing-Redis error was gone. Task environment setup is
 a separate owner-triggered action; no real sandbox bootstrap has been invoked.
+
+## Unified website assistant (2026-11-13)
+
+The website now has one composer and durable conversations, without Chat/Task
+mode selection. All website labels, auth/storage/runtime errors and default AI
+responses are English. User-provided content and legacy stored project data are
+not rewritten. Explicit requests for another response language remain supported.
+The VS Code extension is paused; its download is no longer advertised in the UI.
+
+`POST /api/assistant` understands requests with one budgeted model loop. It may
+reply, inspect up to three actual project snapshots read-only, queue explicit
+implementation work, or request existing tests without edits. Inspection has no
+write/test tools. A conservative server guard prevents a misclassified question
+from authorizing edits; ambiguous requests become a clarification, not an edit.
+An explicit confirmation applies only to the saved pending action.
+Verification workers never open an implementation model and never publish a
+global project update. Their real isolated test results remain visible.
+
+The understanding/inspection loop and subsequent implementation share the
+submitted model budget: routing/inspection cost is subtracted before queueing
+the worker. Existing daily limits, no automatic paid retries, session auth,
+project path restrictions and isolated execution remain enforced. Model intent
+quality has only been tested with deterministic fixtures, not a paid live eval.
+
+Conversations/messages are stored in Redis with existing 30-day retention and
+a 100-message limit. A request ID plus payload fingerprint and conversation
+lock prevents duplicate paid submissions. Incomplete/ambiguous requests are not
+automatically retried. Recent execution state is supplied separately from user
+messages so the assistant can report actual run status rather than infer it.
+Only limited recent history is sent to the model; this is not unlimited memory.
+
+Frontend: animated message entry, genuine pending-request thinking indicator,
+hover/press/focus states, reduced-motion support, collapsible sidebar, code-copy
+buttons and a side-by-side Preview/Activity workspace. No simulated token stream
+or simulated browser mouse activity. Preview capabilities are still limited to
+self-contained HTML/CSS/JavaScript; cloud browser and desktop remain unconnected.
+
+Offline browser fixture verified one continuous conversation: free English
+greeting, read-only inspection, explicit build request creating one work card,
+application preview alongside chat, and history restored after reload. No real
+model, remote VM or production project data was used in the fixture.
+217 offline Python tests passed before final additional wording/guard cases;
+5 UI polling tests passed and production build succeeded. Translation-only test
+assertions were updated without weakening host-execution security assertions.

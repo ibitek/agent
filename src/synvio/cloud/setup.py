@@ -17,7 +17,7 @@ async def prepare(store):
     if saved_snapshot(store):
         return {"ready": True, "already_prepared": True}
     if not store.call("SET", store.key("setup-lock"), "1", "NX", "EX", 180):
-        raise RuntimeError("Przygotowanie środowiska już trwa. Poczekaj chwilę.")
+        raise RuntimeError("Environment preparation is already in progress. Please wait.")
     producer = None
     try:
         from vercel import sandbox
