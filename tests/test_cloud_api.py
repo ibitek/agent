@@ -58,6 +58,7 @@ def test_private_routes_require_login_before_models_or_files(client):
     for path in ["/api/tasks", "/api/models", "/api/workspaces", "/api/health"]:
         assert client.get(path).status_code == 401
     assert client.post("/api/chat", json={"message": "siema"}).status_code == 401
+    assert client.get("/api/tasks/" + "a" * 32 + "/preview").status_code == 401
 
 
 def test_session_has_secure_cookie_and_logout_revokes_browser_session(client):
@@ -253,3 +254,45 @@ def test_worker_timeout_records_failure_without_retry(client, monkeypatch):
     assert calls[0][0][-2:] == ["synvio.cloud.worker", value]
     assert calls[0][1]["timeout"] == 220
     assert "SYNVIO_PASSWORD" not in calls[0][1]["env"]
+
+
+def test_followup_uses_parent_version_and_rejects_active_or_stale_parent(client):
+    login(client)
+    value = create(client).json()["id"]
+    payload = {"task": "Make it blue", "parent_id": value, "workspace": "project"}
+    assert client.post("/api/tasks", json=payload).status_code == 409
+    store = cloud.get_store()
+    store.put_json("files", value, {"index.html": "<h1>Original</h1>"})
+    store.fields(value, status="completed", report={"reason": "tests_passed"})
+    store.release(value)
+    child = client.post("/api/tasks", json=payload)
+    assert child.status_code == 202
+    child_id = child.json()["id"]
+    item = store.get(child_id)
+    assert item["parent_id"] == value and item["thread_id"] == value
+    assert len(item["followup_context"]) == 1
+    store.fields(child_id, status="completed")
+    store.put_json("thread-head", value, child_id)
+    store.release(child_id)
+    assert client.post("/api/tasks", json=payload).status_code == 409
+
+
+def test_preview_returns_json_document_from_saved_task_not_host_files(client):
+    login(client)
+    value = create(client).json()["id"]
+    store = cloud.get_store()
+    store.put_json("files", value, {"index.html": "<h1>Preview</h1>"})
+    store.fields(value, status="completed")
+    response = client.get(f"/api/tasks/{value}/preview")
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.json()["available"]
+    assert "<h1>Preview</h1>" in response.json()["document"]
+
+
+def test_followup_missing_snapshot_fails_before_provider(client):
+    login(client)
+    value = create(client).json()["id"]
+    store = cloud.get_store()
+    store.fields(value, status="failed")
+    store.release(value)
+    assert client.post("/api/tasks", json={"task": "Continue", "parent_id": value}).status_code == 409

@@ -11,6 +11,7 @@ from .common import estimate, limits, public_error, redact_data, validate_files
 from .sandbox_runner import VercelTestRunner, project_files
 from .store import Store
 from .metering import MeteredEngine
+from .followups import prompt_for
 
 
 def run(task_id):
@@ -26,7 +27,10 @@ def run(task_id):
         from synvio.config import SYNVIOConfig
         from synvio.runtime import engine_for
 
-        baseline = validate_files(store.project())
+        source = store.get_json("files", task["parent_id"]) if task.get("parent_id") else store.project()
+        if source is None:
+            raise RuntimeError("Wersja plików poprzedniego zadania wygasła. Nie uruchomiono modelu.")
+        baseline = validate_files(source)
         store.put_json("baseline", task_id, baseline)
         workspace = Workspace.from_files(baseline, root=Path(temporary.name) / "project")
         workspace.clear_mutations()
@@ -40,12 +44,19 @@ def run(task_id):
                 store.fields(task_id, cost_record=event)
                 store.event(task_id, event)
             metered = MeteredEngine(engine, task["model"], task.get("model_budget_usd", 0.10), persist_cost)
-            agent = DeveloperAgent(engine=metered, workspace=workspace, config=config, model=task["model"], test_runner=runner, on_event=lambda event: store.event(task_id, redact_data(event)))
-            report = agent.fix(task["task"])
+            def live_event(event):
+                store.event(task_id, redact_data(event))
+                if event.get("event") == "tool_call" and event.get("tool") == "dev_write_file" and event.get("success"):
+                    store.put_json("preview-files", task_id, project_files(workspace))
+                    store.event(task_id, {"event": "preview_updated"})
+            agent = DeveloperAgent(engine=metered, workspace=workspace, config=config, model=task["model"], test_runner=runner, on_event=live_event)
+            report = agent.fix(prompt_for(task))
         content = project_files(workspace)
         store.put_json("files", task_id, content)
         store.put_json("project", "default", content, expiry=0)
+        store.put_json("thread-head", task.get("thread_id", task_id), task_id)
         result = redact_data(report.to_dict())
+        result["task"] = task["task"]
         result["workspace_root"] = "project"
         result["log_path"] = f"tasks/{task_id}/events"
         result["cost_record"] = metered.summary()

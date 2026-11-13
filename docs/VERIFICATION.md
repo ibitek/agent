@@ -48,3 +48,52 @@ Validation: mocked SDK response with cached token details; budget refusal before
 provider; persistence before provider; timeout/no retry; malformed usage; storage
 failure; authenticated cost history; existing authentication and cloud API tests.
 No paid inference or real sandbox allocation is part of this verification.
+
+## Follow-ups and application preview (2026-11-13)
+
+Task API accepts `parent_id`. The parent must be terminal, have saved files,
+and be the latest committed version in its thread. Active, expired/missing and
+stale versions fail before inference. Recheck the thread head after acquiring
+the existing project lock. Workers load that immutable parent file snapshot,
+not the unrelated latest global project. Context includes at most three previous
+requests/answers, bounded to 1,200/800 characters and marked untrusted history.
+Each follow-up retains a separate inference budget and cost record.
+
+Sidebar groups execution stages into a single thread; the stage navigator opens
+earlier files, diffs, previews and reports. The follow-up composer is shown on
+the latest saved stage, with no active stage in that thread. There is no branch
+merge, unlimited context, resumable workflow or multi-project concurrency yet.
+
+`GET /api/tasks/{id}/preview` returns JSON, never generated HTML on the SYNVIO
+origin. Frontend renders `srcDoc` in an iframe with `sandbox=allow-scripts` and
+no `allow-same-origin`, forms, popups or top-navigation permission. CSP limits
+script/style/image sources and blocks fetch/connect, frames, objects and forms.
+No production credentials or application cookies are provided to the iframe.
+This isolates preview code from the host app; it is not a VM or a comprehensive
+network firewall for every browser navigation behavior.
+
+Standalone HTML with local CSS and classic JavaScript is supported. External
+script/style dependencies, missing assets, JSX and module imports return a clear
+unavailable reason; Python/Node backends and unbuilt React require a remote
+runtime. Preview is not a test-pass signal. Successful file writes publish
+preview snapshots/events; the open viewer refreshes after those real writes.
+
+Browser smoke verification used an isolated loopback fixture with a fake worker,
+no cloud data or model calls: preview opened, button executed inside the iframe,
+follow-up submission preserved parent/thread IDs, changed preview appeared,
+sidebar grouped the two stages, older stage disabled new follow-up, and the
+Environment dialog displayed disconnected computer/browser states.
+186 offline Python tests passed, plus the production frontend build.
+
+## Planned remote interaction modes (not connected)
+
+The user wants both a cloud browser and local computer control. Neither is
+implemented by the Environment dialog. Cloud-browser delivery needs a real
+isolated browser session, bounded lifetime, screenshots/video stream and events
+for actual pointer/keyboard actions. Local mode needs a separately installed,
+signed companion with one-time pairing, visible active-session indication,
+scoped permissions, immediate local Stop, revocation and disconnect handling.
+A webpage alone must never claim control of the user's computer. No inbound
+public desktop port or server API key stored inside the desktop/browser runtime.
+Production still needs model credentials and durable task storage before paid
+agent tasks can be verified end-to-end. No paid model/sandbox test was run.

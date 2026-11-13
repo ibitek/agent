@@ -22,6 +22,8 @@ from pydantic import BaseModel, Field
 
 from . import auth, supabase_auth
 from .metering import MeteredEngine, BudgetExceeded
+from .followups import context_for
+from .preview import build_preview
 from .common import JOB_SECONDS, PROJECT, estimate, greeting, limits, local_reply, model_catalog, public_error, resolve_model, safe_path
 from .store import StorageUnavailable, Store, ready as storage_ready
 from .setup import prepare as prepare_sandbox, saved_snapshot
@@ -51,6 +53,7 @@ class Chat(BaseModel):
 
 
 class Task(BaseModel):
+    parent_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
     model_budget_usd: float = Field(default=0.10, gt=0, le=1, allow_inf_nan=False)
     task: str = Field(min_length=1, max_length=10000)
     workspace: str = PROJECT
@@ -227,12 +230,28 @@ def create_task(body: Task):
         raise HTTPException(503, health()["tasks_unavailable_reason"])
     model = resolve_model(body.model_id)
     store = get_store()
+    parent = None
+    if body.parent_id:
+        parent = task_row(store, body.parent_id)
+        if parent["status"] in {"queued", "running"}:
+            raise HTTPException(409, "Poczekaj na zakończenie zadania przed wysłaniem kontynuacji.")
+        if store.get_json("files", parent["id"]) is None:
+            raise HTTPException(409, "To zadanie nie ma zapisanej wersji plików do kontynuowania.")
+        head = store.get_json("thread-head", parent.get("thread_id", parent["id"]), parent["id"])
+        if head != parent["id"]:
+            raise HTTPException(409, "Ta rozmowa ma nowszą wersję. Otwórz ostatnie zadanie i kontynuuj je.")
     now = time.time()
     value = uuid.uuid4().hex
     item = {"id": value, "model_budget_usd": body.model_budget_usd, "task": body.task, "workspace": PROJECT, "model": model, "model_id": body.model_id, "status": "queued", "created_at": now, "updated_at": now, "deadline": now + JOB_SECONDS + 60, "report": None, "error": None}
+    item.update(parent_id=body.parent_id, thread_id=parent.get("thread_id", parent["id"]) if parent else value,
+                followup_context=context_for(store, parent) if parent else [])
     if not store.create(item):
         raise HTTPException(429, "Projekt ma już aktywne zadanie. Poczekaj na jego zakończenie.")
-    store.event(value, {"event": "task_queued"})
+    if parent and store.get_json("thread-head", item["thread_id"], parent["id"]) != parent["id"]:
+        store.fields(value, status="cancelled", error="W międzyczasie zapisano nowszą wersję rozmowy.")
+        store.release(value)
+        raise HTTPException(409, "Otwórz najnowszą wersję rozmowy.")
+    store.event(value, {"event": "task_queued", "parent_id": body.parent_id, "thread_id": item["thread_id"]})
     return {"id": value, "status": "queued", "cancellation": "queued_tasks_only", "run_required": True}
 
 
@@ -378,3 +397,15 @@ def download(value: str):
         for name, text in content.items():
             archive.writestr(safe_path(name), text)
     return Response(output.getvalue(), media_type="application/zip", headers={"Content-Disposition": f'attachment; filename="synvio-{value}.zip"'})
+
+
+@app.get("/api/tasks/{value}/preview")
+def preview(value: str):
+    store = get_store()
+    item = task_row(store, value)
+    content = store.get_json("preview-files", value) if item["status"] == "running" else store.get_json("files", value)
+    if content is None:
+        content = store.get_json("files", value)
+    if content is None:
+        return {"available": False, "reason": "Zadanie nie ma jeszcze zapisanych plików podglądu."}
+    return build_preview(content)
