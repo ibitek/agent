@@ -489,3 +489,21 @@ def test_verification_worker_never_opens_model_or_publishes_project_changes(clie
     assert result["report"]["files_modified"] == []
     assert result["report"]["estimated_cost_usd"] == 0
     assert store.project() == before
+
+def test_static_worker_uses_real_file_loop_without_creating_sandbox(client, monkeypatch):
+    from synvio.cloud import worker
+    login(client)
+    assistant_engine(monkeypatch, [
+        {'action': 'write', 'path': 'index.html', 'content': '<h1>Website</h1>'},
+        {'action': 'finish', 'text': 'Saved the website.'},
+    ])
+    value = client.post('/api/tasks', json={'task': 'Build a website', 'runtime': 'web'}).json()['id']
+    store = cloud.get_store()
+    store.fields(value, status='running')
+    monkeypatch.setattr(worker, 'VercelTestRunner', lambda *args, **kwargs: pytest.fail('Static builder must not create a sandbox'))
+    assert worker.run(value) == 0
+    result = store.get(value)
+    assert result['status'] == 'completed'
+    assert result['report']['verification_level'] == 'static'
+    assert result['report']['tests'] == []
+    assert store.get_json('files', value)['index.html'] == '<h1>Website</h1>'
