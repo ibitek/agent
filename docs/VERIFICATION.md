@@ -303,3 +303,24 @@ React compilation still require a real owner-triggered run.
 
 SDK contract checked against installed vercel Python package and official docs:
 https://vercel.com/docs/sandbox/python-sdk-reference
+
+
+## Builder layout correction (2026-11-13)
+
+Replaced the permanent three-column layout with the requested builder composition:
+compact conversation at left, large application canvas at right, history in a
+drawer, Preview / Code & files / Activity toolbar, address/reload controls, and
+expand-preview action. Saved conversations open their application preview
+automatically. Source changes use existing authenticated read-only file APIs.
+
+Build diagnostics are collapsed by default so npm output does not consume the
+application canvas. Theme fixes now cover success cards, file headers, cost
+metrics and final-answer cards, including legacy selectors that previously
+left dark backgrounds under dark text in light mode. Known step/tool/attempt
+counts are shown even when a report does not include maximum limits.
+
+Validation: frontend build and UI polling tests; loopback browser fixture checked
+the two-column composition, history drawer, source-code view, light-mode activity
+contrast, dark-mode preview and expand/restore. No model or cloud build was
+started during interface verification. Existing generated application files and
+server execution/security policies were not changed.
