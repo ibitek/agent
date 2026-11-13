@@ -378,3 +378,30 @@ After owner sign-in, production verification confirmed index.html and src/main.j
 read successfully through the new file query parameter, syntax highlighting is
 visible, and the bottom Terminal pane displays the previously recorded real npm
 installation and Vite build output. This verification started no model or VM.
+
+## Cloud browser beta (2026-11-13)
+
+Replaces external-link placeholders with owner-triggered browser image preparation
+and bounded five-minute Vercel Sandbox sessions. No environment is started by
+opening the Browser tab. Controls include real JPEG captures, tabs, navigation,
+manual coordinate clicking, typing, scrolling, keyboard controls and actual page
+console messages. The session token is private, no public ports are exposed, and
+model credentials never enter the browser environment. Private address ranges
+are denied at the VM firewall and URLs are checked independently. Stop destroys
+the VM; actions never implicitly resume it. Input actions are not retried.
+
+The UI displays a service compute estimate of $0.005/minute, separately from
+model costs. Preparation uses up to four minutes of compute and a blank image is
+retained for 24 hours. There is no customer wallet debit or billing ledger yet.
+The initial allowance is two preparations and four sessions per day. Images can
+be explicitly removed through the authenticated /api/browser/image/remove API.
+
+Validation: 285 offline Python tests passed, including 23 new browser tests
+using a fake VM and real installed SDK configuration types; five UI polling tests
+passed; production frontend compilation passed. Local browser UI was inspected
+without allocating a real VM. This is distinct from syntax/build validation:
+Chromium installation, cloud firewall behavior and actual remote interactions
+still require a real owner-started cloud session. No paid model or VM was started
+for this verification. Agent access to browser content is not wired into chat
+in this beta; the backend denies agent input actions and restricts navigation.
+Screenshots are snapshots every three seconds, not a continuous video stream.

@@ -26,6 +26,7 @@ from .followups import context_for
 from .preview import build_preview
 from .editor import router as editor_router
 from .assistant import router as assistant_router
+from .browser_sessions import router as browser_router
 from .common import JOB_SECONDS, PROJECT, estimate, greeting, limits, local_reply, model_catalog, public_error, resolve_model, safe_path
 from .store import StorageUnavailable, Store, ready as storage_ready
 from .setup import prepare as prepare_sandbox, saved_snapshot
@@ -37,6 +38,7 @@ os.environ.setdefault("OPENJARVIS_HOME", str(Path(tempfile.gettempdir()) / "synv
 app = FastAPI(title="SYNVIO Agents", docs_url=None, redoc_url=None, openapi_url=None)
 app.include_router(editor_router)
 app.include_router(assistant_router)
+app.include_router(browser_router)
 
 
 class Login(BaseModel):
