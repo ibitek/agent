@@ -17,6 +17,8 @@ JOB_SECONDS = 220
 
 def greeting(text: str) -> bool:
     value = " ".join(re.sub(r"[^\w\s]", "", text.casefold()).split())
+    if re.fullmatch(r"(?:yo+|he+j+|he+y+|siema+)", value):
+        return True
     return value in {"siema", "siemka", "siemanko", "hej", "hejka", "hejo", "cześć", "czesc", "witam", "dzień dobry", "dzien dobry", "dobry wieczór", "dobry wieczor", "elo", "yo", "hi", "hello", "hey", "how are you", "co tam", "co słychać", "co slychac", "good morning", "good afternoon", "good evening"}
 
 

@@ -104,6 +104,7 @@ class MeteredEngine:
 
     def summary(self):
         return {"currency": "USD", "scope": "model_only", "rate_version": RATE_VERSION,
+                "blocked": self.blocked,
                 "budget_usd": usd(self.budget), "estimated_cost_usd": usd(self.spent),
                 "unresolved_reservation_usd": usd(self.reserved_unknown),
                 "invoice_verified": False, "calls": self.calls}

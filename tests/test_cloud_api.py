@@ -296,3 +296,52 @@ def test_followup_missing_snapshot_fails_before_provider(client):
     store.fields(value, status="failed")
     store.release(value)
     assert client.post("/api/tasks", json={"task": "Continue", "parent_id": value}).status_code == 409
+
+
+def test_editor_steps_are_metered_and_duplicate_steps_do_not_charge_again(client, monkeypatch):
+    login(client)
+    from synvio import runtime
+    calls = []
+    class Engine:
+        def generate(self, messages, **kwargs):
+            calls.append(kwargs)
+            return {"content": '{"action":"list"}', "usage": {"prompt_tokens": 100, "completion_tokens": 10}}
+    @contextmanager
+    def engine(config):
+        yield Engine()
+    monkeypatch.setattr(runtime, "engine_for", engine)
+    response = client.post("/api/editor/sessions", json={"workspace_name": "demo"})
+    assert response.status_code == 201
+    value = response.json()["id"]
+    payload = {"sequence": 0, "messages": [{"role": "user", "content": "List the project"}]}
+    first = client.post(f"/api/editor/sessions/{value}/step", json=payload)
+    assert first.status_code == 200
+    assert first.json()["action"] == {"action": "list"}
+    assert client.post(f"/api/editor/sessions/{value}/step", json=payload).json() == first.json()
+    assert len(calls) == 1
+    assert client.post(f"/api/editor/sessions/{value}/stop").status_code == 200
+    payload["sequence"] = 1
+    assert client.post(f"/api/editor/sessions/{value}/step", json=payload).status_code == 409
+    assert len(calls) == 1
+
+
+def test_editor_small_budget_prevents_inference(client, monkeypatch):
+    login(client)
+    from synvio import runtime
+    class Engine:
+        def generate(self, *args, **kwargs):
+            raise AssertionError("Must never call provider")
+    @contextmanager
+    def engine(config):
+        yield Engine()
+    monkeypatch.setattr(runtime, "engine_for", engine)
+    value = client.post("/api/editor/sessions", json={"workspace_name": "demo", "model_budget_usd": 0.000001}).json()["id"]
+    response = client.post(f"/api/editor/sessions/{value}/step", json={"sequence": 0, "messages": [{"role": "user", "content": "hello"}]})
+    assert response.status_code == 409
+
+
+def test_elongated_greeting_never_requires_redis_or_provider(client, monkeypatch):
+    login(client)
+    monkeypatch.delenv("OPENAI_API_KEY")
+    monkeypatch.delenv("UPSTASH_REDIS_REST_TOKEN")
+    assert client.post("/api/chat", json={"message": "yooo"}).json()["local_response"] is True

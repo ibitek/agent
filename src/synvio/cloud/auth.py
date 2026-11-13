@@ -58,6 +58,14 @@ def check_origin(request: Request) -> None:
 def require(request: Request) -> None:
     if not configured():
         raise HTTPException(503, "Administrator musi skonfigurować logowanie w Vercelu.")
+    if request.url.path.startswith("/api/editor/") and supabase_auth.enabled():
+        authorization = request.headers.get("authorization", "")
+        if authorization.startswith("Bearer "):
+            if not supabase_auth.valid(authorization[7:]):
+                raise HTTPException(401, "Zaloguj się do SYNVIO.")
+            if request.headers.get("origin"):
+                check_origin(request)
+            return
     if not valid(request.cookies.get(cookie_name())):
         raise HTTPException(401, "Zaloguj się do SYNVIO.")
     if request.method not in {"GET", "HEAD", "OPTIONS"}:

@@ -24,6 +24,7 @@ from . import auth, supabase_auth
 from .metering import MeteredEngine, BudgetExceeded
 from .followups import context_for
 from .preview import build_preview
+from .editor import router as editor_router
 from .common import JOB_SECONDS, PROJECT, estimate, greeting, limits, local_reply, model_catalog, public_error, resolve_model, safe_path
 from .store import StorageUnavailable, Store, ready as storage_ready
 from .setup import prepare as prepare_sandbox, saved_snapshot
@@ -33,6 +34,7 @@ from .setup import prepare as prepare_sandbox, saved_snapshot
 os.environ.setdefault("OPENJARVIS_HOME", str(Path(tempfile.gettempdir()) / "synvio-sdk"))
 
 app = FastAPI(title="SYNVIO Agents", docs_url=None, redoc_url=None, openapi_url=None)
+app.include_router(editor_router)
 
 
 class Login(BaseModel):
@@ -67,7 +69,7 @@ def get_store():
 @app.middleware("http")
 async def session_guard(request, call_next):
     try:
-        if request.url.path not in {"/api/session", "/api/login"}:
+        if request.url.path not in {"/api/session", "/api/login", "/api/editor/config"}:
             auth.require(request)
         response = await call_next(request)
     except HTTPException as exc:
@@ -124,7 +126,12 @@ def tasks_ready():
 def health():
     enabled = tasks_ready()
     can_prepare = storage_ready() and os.environ.get("SYNVIO_ENABLE_TASKS") == "1" and not enabled
-    return {"status": "ok", "host": "vercel", "execution_backend": "vercel_sandbox", "cancellation": "queued_tasks_only", "tasks_enabled": enabled, "can_prepare_tasks": can_prepare, "tasks_unavailable_reason": None if enabled else "Zadania wymagają podłączenia Redis, przygotowania środowiska testów i ustawienia SYNVIO_ENABLE_TASKS=1 w Vercelu."}
+    reason = None if enabled else "Najpierw przygotuj środowisko testów przyciskiem poniżej."
+    if not storage_ready():
+        reason = "Podłącz magazyn Redis w ustawieniach projektu."
+    elif os.environ.get("SYNVIO_ENABLE_TASKS") != "1":
+        reason = "Wykonywanie zadań jest wyłączone w ustawieniach serwera."
+    return {"status": "ok", "host": "vercel", "execution_backend": "vercel_sandbox", "cancellation": "queued_tasks_only", "tasks_enabled": enabled, "can_prepare_tasks": can_prepare, "tasks_unavailable_reason": reason}
 
 
 @app.post("/api/setup/sandbox")
@@ -199,12 +206,14 @@ def task_id(value):
 @app.get("/api/costs")
 def cost_history():
     if not storage_ready():
-        return {"currency": "USD", "scope": "model_only", "chat": [], "tasks": []}
+        return {"currency": "USD", "scope": "model_only", "chat": [], "tasks": [], "editor": []}
     store = get_store()
     ids = store.call("ZREVRANGE", store.key("chat-cost-history"), 0, 49) or []
     chats = [record for value in ids if (record := store.get_json("chat-cost", value))]
     tasks = [{"id": task["id"], "cost_record": task["cost_record"]} for task in store.history(50) if task.get("cost_record")]
-    return {"currency": "USD", "scope": "model_only", "chat": chats, "tasks": tasks}
+    editor_ids = store.call("ZREVRANGE", store.key("editor-history"), 0, 49) or []
+    editor = [{"id": item["id"], "workspace_name": item["workspace_name"], "status": item["status"], "cost_record": item.get("cost_record")} for value in editor_ids if (item := store.get_json("editor", value))]
+    return {"currency": "USD", "scope": "model_only", "chat": chats, "tasks": tasks, "editor": editor}
 
 
 def task_row(store, value):

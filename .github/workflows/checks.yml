@@ -22,4 +22,6 @@ jobs:
       - run: python tools/verify_offline.py
       - run: npm --prefix web ci
       - run: npm run test:ui
+      - run: npm --prefix extensions/vscode test
+      - run: node --check extensions/vscode/extension.cjs
       - run: npm run build

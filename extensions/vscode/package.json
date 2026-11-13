@@ -1,0 +1,20 @@
+{
+  "name": "synvio-workspace",
+  "displayName": "SYNVIO Workspace",
+  "description": "SYNVIO agent for a selected project, with reviewed file changes and server-side model budgets.",
+  "version": "0.1.0",
+  "publisher": "synviocore",
+  "license": "UNLICENSED",
+  "engines": {"vscode": "^1.100.0"},
+  "categories": ["Other"],
+  "main": "./extension.cjs",
+  "activationEvents": ["onCommand:synvio.open"],
+  "extensionKind": ["workspace"],
+  "capabilities": {"untrustedWorkspaces": {"supported": false, "description": "SYNVIO reads and proposes changes in the project you explicitly approve."}, "virtualWorkspaces": false},
+  "contributes": {"commands": [
+    {"command": "synvio.open", "title": "SYNVIO: Open Agent"},
+    {"command": "synvio.stop", "title": "SYNVIO: Stop Agent"}
+  ]},
+  "scripts": {"test": "node --test test/*.test.cjs"},
+  "repository": {"type": "git", "url": "https://github.com/ibitek/agent.git"}
+}

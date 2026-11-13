@@ -97,3 +97,48 @@ A webpage alone must never claim control of the user's computer. No inbound
 public desktop port or server API key stored inside the desktop/browser runtime.
 Production still needs model credentials and durable task storage before paid
 agent tasks can be verified end-to-end. No paid model/sandbox test was run.
+
+## VS Code companion 0.1 (2026-11-13)
+
+Packaged with @vscode/vsce 4.1.1 as a real VSIX, with no runtime npm dependencies.
+Source: extensions/vscode. Hosted download: /downloads/synvio-workspace-0.1.0.vsix.
+Artifact bytes were compared with the checked source and ZIP integrity verified.
+The extension has not been installed into the user's VS Code or Marketplace.
+No real model task has been used to validate it in a VS Code extension host.
+
+Authentication uses the app's existing Supabase account. Password entry is via
+a native password prompt and goes directly to Supabase HTTPS; only refresh/access
+tokens are stored in SecretStorage. The public config endpoint rejects non-
+publishable keys; it never exposes model or service_role credentials. Bearer
+auth is accepted only on editor routes and still validates the owner allowlist
+against Supabase. Browser Origin checks remain in place when Origin is present.
+
+A project must be trusted and explicitly selected/approved for sending source
+content to SYNVIO and its model provider. Local actions: list, read, proposed
+write, final. No arbitrary commands, shell, terminal, web or desktop control.
+Known secret files, hidden paths, traversal, drive paths, symlinks and binary or
+oversized files are blocked. Writes require a VS Code diff plus per-file approval;
+existing dirty buffers and file changes during review are rejected. An accepted
+change is saved only if its buffer still matches the approved content. This is
+user-authorized host editing, not an OS sandbox or full secret scanner.
+
+The model loop uses server-held model credentials, 8 sequential turns, and one
+shared model budget. Cost telemetry is persisted per turn and surfaced through
+/api/costs. Duplicate step numbers replay the saved action rather than invoking
+the provider again. Unknown costs block further turns. Stop aborts local requests
+and writes a persistent server stop flag; subsequent local actions check abort
+state before applying an edit. It cannot guarantee that an already-started
+provider call stops billing. Conversation context survives follow-ups in the
+current panel only; website task history is not yet synchronized with it.
+
+Verification: 197 Python offline tests before final additive history changes,
+7 Node extension tests (including write decline, conflict and Stop), 5 existing
+UI tests, syntax checks and frontend build. Test model/network calls are mocked.
+No paid inference, host project changes or remote test VM allocations were run.
+
+Upstash was provisioned with explicit user approval of integration terms and
+only the Free plan, no eviction/read replicas, iad1, connected to Production
+only. Secret values were never revealed or copied to the local workspace.
+Production metadata confirms model and Redis variable presence; authenticated
+UI reload confirmed the missing-Redis error was gone. Task environment setup is
+a separate owner-triggered action; no real sandbox bootstrap has been invoked.

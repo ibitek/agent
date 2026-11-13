@@ -9,7 +9,7 @@ from synvio.cloud import app as cloud
 def client(monkeypatch):
     monkeypatch.setenv("SYNVIO_AUTH_PROVIDER", "supabase")
     monkeypatch.setenv("SUPABASE_URL", "https://auth.example.test")
-    monkeypatch.setenv("SUPABASE_PUBLISHABLE_KEY", "test-public-key")
+    monkeypatch.setenv("SUPABASE_PUBLISHABLE_KEY", "sb_publishable_test")
     monkeypatch.setenv("SYNVIO_ALLOWED_EMAILS", "owner@example.test")
     monkeypatch.delenv("UPSTASH_REDIS_REST_URL", raising=False)
     monkeypatch.delenv("KV_REST_API_URL", raising=False)
@@ -62,3 +62,18 @@ def test_forged_cookie_and_provider_outage_fail_closed(client, monkeypatch):
         raise httpx.ConnectError("offline")
     monkeypatch.setattr(httpx, "request", offline)
     assert client.get("/api/tasks").status_code == 503
+
+
+def test_editor_bearer_is_not_accepted_on_other_api_routes(client):
+    bearer = {"Authorization": "Bearer valid-token"}
+    assert client.get("/api/costs", headers=bearer).status_code == 401
+    assert client.post("/api/editor/sessions", json={"workspace_name": "demo"}, headers={"Authorization": "Bearer forged"}).status_code == 401
+    assert client.post("/api/editor/sessions", json={"workspace_name": "demo"}, headers=bearer).status_code == 503
+    assert client.get("/api/editor/config").status_code == 200
+
+
+def test_public_editor_config_never_exposes_wrongly_configured_secret(client, monkeypatch):
+    monkeypatch.setenv("SUPABASE_PUBLISHABLE_KEY", "sb_secret_not-a-public-key")
+    response = client.get("/api/editor/config")
+    assert response.status_code == 503
+    assert "sb_secret" not in response.text
