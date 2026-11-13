@@ -176,7 +176,7 @@ async def chat(body: Chat):
     def generate():
         from openjarvis.core.types import Message as EngineMessage, Role
         from synvio.config import SYNVIOConfig
-        from synvio.runtime import engine_for
+        from .gateway import engine_for
 
         system = "You are SYNVIO. Default to English unless the user explicitly requests another language. Answer naturally. This legacy endpoint has no tools; never claim file changes or test results."
         messages = [EngineMessage(role=Role.SYSTEM, content=system)]
@@ -219,6 +219,19 @@ def cost_history():
     editor_ids = store.call("ZREVRANGE", store.key("editor-history"), 0, 49) or []
     editor = [{"id": item["id"], "workspace_name": item["workspace_name"], "status": item["status"], "cost_record": item.get("cost_record")} for value in editor_ids if (item := store.get_json("editor", value))]
     return {"currency": "USD", "scope": "model_only", "chat": chats, "tasks": tasks, "editor": editor}
+
+
+@app.get('/api/wallet')
+def wallet():
+    from decimal import Decimal
+    from .retail import service_amount, compute_estimate, COMPUTE_PER_MINUTE
+    usage = cost_history()
+    records = [*usage.get('chat',[]), *[item.get('cost_record') or {} for item in usage.get('tasks',[])], *[item.get('cost_record') or {} for item in usage.get('editor',[])]]
+    model_total = sum((Decimal(record.get('service_estimated_cost_usd') or service_amount(record.get('estimated_cost_usd','0'))) for record in records), Decimal(0))
+    return {'currency':'USD','payments_enabled':False,'balance_usd':None,'model_usage_estimate_usd':str(model_total),
+            'compute_price_per_minute_usd':str(COMPUTE_PER_MINUTE),'compute_billing_unit':'second',
+            'compute_usage_estimate_usd':str(sum((Decimal(compute_estimate((get_store().get_json('application-build',task['id']) or {}).get('duration_seconds',0))) for task in get_store().history(50)),Decimal(0))),
+            'bonus_max_percent':20,'bonus_tiers':[{'deposit_usd':amount,'bonus_percent':bonus} for amount,bonus in [('5',2),('12.50',5),('25',10),('50',15),('100',20)]], 'usage_window':'Latest 50 records per source and latest build per run. Estimates at current service rates, not an invoice.'}
 
 
 def task_row(store, value):
@@ -271,7 +284,7 @@ def create_task(body: Task):
 
 async def run_worker(store, value, oidc_token=None):
     # Only the known core worker runs locally. Model-authored code runs in remote microVMs.
-    allowed = {"PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "OPENAI_API_KEY", "UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN", "KV_REST_API_URL", "KV_REST_API_TOKEN", "SYNVIO_SANDBOX_SNAPSHOT", "VERCEL_TOKEN", "VERCEL_TEAM_ID", "VERCEL_PROJECT_ID", "VERCEL_REGION"}
+    allowed = {"PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "OPENAI_API_KEY", "AI_GATEWAY_API_KEY", "SYNVIO_ENABLE_GATEWAY", "UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN", "KV_REST_API_URL", "KV_REST_API_TOKEN", "SYNVIO_SANDBOX_SNAPSHOT", "VERCEL_TOKEN", "VERCEL_TEAM_ID", "VERCEL_PROJECT_ID", "VERCEL_REGION"}
     env = {key: value for key, value in os.environ.items() if key in allowed}
     # Vercel can add dependency directories to sys.path rather than the system
     # interpreter's site-packages; the known worker needs the same trusted paths.
@@ -385,15 +398,16 @@ def file_data(store, value, path):
 
 
 @app.get("/api/tasks/{value}/files/content")
-def file_content(value: str, path: str = Query(min_length=1, max_length=200)):
-    name, action, content = file_data(get_store(), value, path)
+def file_content(value: str, file: str | None = Query(default=None, min_length=1, max_length=200), path: str | None = Query(default=None, min_length=1, max_length=200)):
+    # Vercel's catch-all rewrite can populate `path`; keep the filename separate.
+    name, action, content = file_data(get_store(), value, file or path or '')
     return {"path": name, "action": action, "content": content, "read_only": True}
 
 
 @app.get("/api/tasks/{value}/files/diff")
-def file_diff(value: str, path: str = Query(min_length=1, max_length=200)):
+def file_diff(value: str, file: str | None = Query(default=None, min_length=1, max_length=200), path: str | None = Query(default=None, min_length=1, max_length=200)):
     store = get_store()
-    name, action, content = file_data(store, value, path)
+    name, action, content = file_data(store, value, file or path or '')
     baseline = store.get_json("baseline", value, {})
     if name not in baseline and action != "created":
         return {"path": name, "available": False, "reason": "No baseline snapshot was saved.", "diff": None}

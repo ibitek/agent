@@ -563,7 +563,8 @@ def test_stronger_catalog_is_distinct_priced_and_server_gated(client, monkeypatc
         resolve_model('openai:gpt-4.1')
     assert blocked.value.status_code == 403
     monkeypatch.setenv('SYNVIO_ALLOW_EXPENSIVE_MODELS', '1')
-    models = client.get('/api/models').json()['items']
+    all_models = client.get('/api/models').json()['items']
+    models = [item for item in all_models if item['provider']=='openai']
     assert len({item['model'] for item in models}) == len(models)
     assert {item['model'] for item in models} == {'gpt-4o-mini','gpt-4o','gpt-4.1-mini','gpt-4.1'}
     assert all(item['available'] and item['pricing']['currency']=='USD' for item in models)
@@ -604,3 +605,24 @@ def test_react_routing_uses_original_source_request_without_snapshot(client, mon
     response=client.post('/api/assistant',json={'request_id':'4'*32,'message':'Build a React dashboard with Vite'})
     assert response.status_code==200
     assert cloud.get_store().get(response.json()['task']['id'])['runtime']=='app'
+
+
+def test_filename_query_survives_vercel_path_capture(client):
+    login(client)
+    value=create(client).json()['id']
+    store=cloud.get_store()
+    store.fields(value,status='completed',report={'files_modified':['index.html']})
+    store.put_json('files',value,{'index.html':'<h1>Actual source</h1>'})
+    result=client.get(f'/api/tasks/{value}/files/content',params={'file':'index.html','path':f'tasks/{value}/files/content'})
+    assert result.status_code==200 and result.json()['content']=='<h1>Actual source</h1>'
+    assert client.get(f'/api/tasks/{value}/files/content',params={'file':'../secret'}).status_code==400
+
+
+def test_wallet_does_not_invent_balance_or_activate_payments(client):
+    assert client.get('/api/wallet').status_code==401
+    login(client)
+    result=client.get('/api/wallet').json()
+    assert result['payments_enabled'] is False and result['balance_usd'] is None
+    assert result['bonus_tiers'][0]=={'deposit_usd':'5','bonus_percent':2}
+    assert result['bonus_tiers'][-1]=={'deposit_usd':'100','bonus_percent':20}
+    assert result['compute_price_per_minute_usd']=='0.005'

@@ -324,3 +324,50 @@ the two-column composition, history drawer, source-code view, light-mode activit
 contrast, dark-mode preview and expand/restore. No model or cloud build was
 started during interface verification. Existing generated application files and
 server execution/security policies were not changed.
+
+
+## Neutral workspace, diagnostics and PAYG preparation (2026-11-13)
+
+Fixed file lookup by using the `file` query parameter separately from Vercel's
+catch-all `path` rewrite parameter. Legacy path queries still work. A regression
+sends both parameters to reproduce the production collision. File text remains
+path-checked, authenticated and read-only. Prism tokenization is rendered with
+React text nodes, not raw HTML insertion, for HTML/CSS/JS/JSX/TS/TSX/JSON/Python.
+
+The workspace uses neutral gray palettes with restrained blue accents, custom
+scrollbars, drawer/panel/hover transitions and reduced-motion support. A bottom
+Terminal/Problems/Console drawer shows recorded build output and real events;
+it does not pretend to offer an interactive shell or a connected browser console.
+Model selection opens a searchable provider catalog. Safety settings move out
+of the composer to Wallet, with the service-price cap converted to a provider
+budget before submitting a message.
+
+Service token estimates use provider cost x 1.30. Raw provider estimates remain
+separate for auditing; customer-facing prices and cost cards use service estimates.
+The compute service policy is USD 0.005/minute estimated per second, explicitly
+separate from model usage. Wallet shows a partial history estimate, not an invoice,
+real balance or debits. No payment processing, deposit credits or spendable balance
+was added. Owner-approved future bonus tiers: USD5 +2%, 12.50 +5%, 25 +10%,
+50 +15%, 100 +20%. They remain inactive until checkout and a durable ledger exist.
+
+A pinned public AI Gateway catalog includes Google, Mistral, Qwen, Anthropic and
+DeepSeek. The optional backend adapter supports only reviewed flat-rate models
+without unhandled cache-write/tier/provider-variable charges. It requires both
+SYNVIO_ENABLE_GATEWAY=1 and AI_GATEWAY_API_KEY; neither is enabled/provisioned by
+this change. It has a fixed HTTPS endpoint, existing budget preflight, no HTTP
+retries and normalized usage checks. Anthropic/tiered entries remain unavailable
+until their usage accounting is implemented. OpenJarvis remains untouched.
+Catalog fetched from https://ai-gateway.vercel.sh/v1/models on 2026-11-13; API
+contract checked at https://vercel.com/docs/ai-gateway/sdks-and-apis/openai-chat-completions.
+
+Browser workspace tabs currently save addresses and open HTTP(S) pages separately,
+with a clear remote-browser-not-connected state. They are not a live remote browser,
+agent vision, cursor stream or screenshot tool. No arbitrary external page is
+embedded on the trusted application origin. Actual remote browser integration
+and vision metering remain outstanding.
+
+Validation: full offline suite and UI polling tests; dedicated tests for service
+price separation, gateway opt-in/budget enforcement, unsupported rate exclusion,
+wallet inactivity and Vercel query collision. Loopback browser fixture verified
+gray themes, wallet/bonus display, model selection without inference, syntax
+colors and diagnostics expansion. No real model, cloud VM or payment was used.

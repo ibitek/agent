@@ -1,3 +1,4 @@
+import { serviceCost } from './AccountPanel.jsx'
 import ApplicationBuild from './ApplicationBuild.jsx'
 import { useEffect, useState } from 'react'
 import { Activity, Bot, Check, CheckCircle2, Clock3, Code2, FileText, LoaderCircle, Square, Terminal, RotateCw, XCircle } from 'lucide-react'
@@ -26,7 +27,7 @@ function TaskView({ activeTask, events, logsReady, logsComplete, logRef, latestA
     {report && <div className="metrics-row"><Metric label="Steps" value={Number.isFinite(report.steps_used) ? (Number.isFinite(limits.global_steps)?`${report.steps_used} / ${limits.global_steps}`:report.steps_used) : '—'} /><Metric label="Tool calls" value={Number.isFinite(report.tool_calls) ? (Number.isFinite(limits.global_tool_calls)?`${report.tool_calls} / ${limits.global_tool_calls}`:report.tool_calls) : '—'} /><Metric label="Attempts" value={Number.isFinite(report.attempts) ? (Number.isFinite(limits.max_repair_attempts)?`${report.attempts} / ${limits.max_repair_attempts}`:report.attempts) : '—'} /><Metric label="Duration" value={Number.isFinite(report.duration_seconds) ? `${report.duration_seconds.toFixed(1)}s` : '—'} /></div>}
     {report && <div className="result-details">
       {files.length > 0 && <div className="changed-files"><div className="section-heading"><div><FileText size={15} /><strong>Changed files</strong><span>({files.length})</span></div></div><div className="file-list">{files.map((file) => <FileResult key={`${file.action}:${file.path}`} taskId={activeTask.id} file={file} />)}</div></div>}
-      {costRecord && <div className="usage-card"><div className="section-heading"><strong>AI usage · USD</strong></div><div className="usage-values"><Metric label="Budget" value={`$${costRecord.budget_usd}`} /><Metric label="Usage estimate" value={`$${costRecord.estimated_cost_usd}`} /><Metric label="Unresolved cost" value={`$${costRecord.unresolved_reservation_usd}`} /></div><p className="composer-caption">Excludes infrastructure and tax. This is an estimate, not a balance charge. Unconfirmed usage remains reserved for review.</p></div>}
+      {costRecord && <div className="usage-card"><div className="section-heading"><strong>AI usage · USD</strong></div><div className="usage-values"><Metric label="Budget" value={`$${Number(costRecord.service_budget_usd??Number(costRecord.budget_usd)*1.3).toFixed(4)}`} /><Metric label="Usage estimate" value={`$${serviceCost(costRecord).toFixed(6)}`} /><Metric label="Unresolved cost" value={`$${Number(costRecord.service_reserved_usd??Number(costRecord.unresolved_reservation_usd||0)*1.3).toFixed(6)}`} /></div><p className="composer-caption">Excludes infrastructure and tax. This is an estimate, not a balance charge. Unconfirmed usage remains reserved for review.</p></div>}
       {tokenValuesAvailable && <div className="usage-card"><div className="section-heading"><div><Activity size={15} /><strong>Model usage</strong></div></div><div className="usage-values">{Number.isFinite(tokens.prompt_tokens) && <Metric label="Input tokens" value={tokens.prompt_tokens.toLocaleString()} />}{Number.isFinite(tokens.completion_tokens) && <Metric label="Output tokens" value={tokens.completion_tokens.toLocaleString()} />}{Number.isFinite(tokens.total_tokens) && <Metric label="Total tokens" value={tokens.total_tokens.toLocaleString()} />}{!costRecord && Number.isFinite(report.estimated_cost_usd) && <Metric label="Estimated AI cost" value={`$${report.estimated_cost_usd.toFixed(6)}`} />}</div></div>}
     </div>}
     <div className="section-heading"><div><Terminal size={15} /><strong>Execution log</strong><span>({events.length})</span></div><span className="live-label"><span className={isActive ? 'pulse-dot' : ''} />{isActive ? 'Live progress' : logsComplete ? 'Complete' : 'Synchronizing execution log…'}</span></div>
@@ -61,7 +62,7 @@ function FileResult({ taskId, file }) {
   async function load(nextView) {
     setView(nextView); setError(''); setLoading(true)
     try {
-      const query = new URLSearchParams({ path: file.path })
+      const query = new URLSearchParams({ file: file.path })
       const result = await getJSON(`/api/tasks/${taskId}/files/${nextView === 'diff' ? 'diff' : 'content'}?${query}`)
       if (nextView === 'diff') setDiff(result)
       else setContent(result)
@@ -75,7 +76,8 @@ function Metric({ label, value }) { return <div className="metric"><span>{label}
 
 function EventRow({ event }) {
   const time = event.created_at ? new Date(event.created_at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : event.ts ? new Date(event.ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '--:--:--'
-  const tool = event.tool ? <><strong>{event.tool}</strong>{event.allowed === false && <em> blocked</em>}{event.success === false && <em> · failed</em>}{event.output && <pre>{event.output}</pre>}</> : Object.entries(event).filter(([key]) => !['sequence', 'created_at', 'ts', 'event'].includes(key)).map(([key, value]) => <span key={key}>{key}: {typeof value === 'string' ? value : JSON.stringify(value)}</span>)
+  const displayEvent=event.event==='model_cost'?{currency:'USD',usage_estimate:serviceCost(event).toFixed(6),reserved:Number(event.service_reserved_usd??Number(event.unresolved_reservation_usd||0)*1.3).toFixed(6),calls:event.calls?.length||0}:event
+  const tool = event.tool ? <><strong>{event.tool}</strong>{event.allowed === false && <em> blocked</em>}{event.success === false && <em> · failed</em>}{event.output && <pre>{event.output}</pre>}</> : Object.entries(displayEvent).filter(([key]) => !['sequence', 'created_at', 'ts', 'event'].includes(key)).map(([key, value]) => <span key={key}>{key}: {typeof value === 'string' ? value : JSON.stringify(value)}</span>)
   return <div className="event-row"><time>{time}</time><span className="event-marker"><span /></span><div className="event-body"><strong className="event-name">{event.event?.replaceAll('_', ' ') || 'event'}</strong>{tool && <div className="event-detail">{tool}</div>}</div></div>
 }
 

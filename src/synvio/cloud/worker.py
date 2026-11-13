@@ -25,7 +25,7 @@ def run(task_id):
         from synvio.autodev.agent import DeveloperAgent
         from synvio.autodev.workspace import Workspace
         from synvio.config import SYNVIOConfig
-        from synvio.runtime import engine_for
+        from .gateway import engine_for
 
         source = store.get_json("files", task["parent_id"]) if task.get("parent_id") else store.project()
         if source is None:

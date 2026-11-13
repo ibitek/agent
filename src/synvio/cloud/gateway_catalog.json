@@ -1,0 +1,380 @@
+{
+  "source": "https://ai-gateway.vercel.sh/v1/models",
+  "verified_at": "2026-11-13",
+  "models": [
+    {
+      "id": "alibaba/qwen3-coder",
+      "name": "Qwen3 Coder 480B A35B Instruct",
+      "owned_by": "alibaba",
+      "pricing": {
+        "input": "0.00000022",
+        "output": "0.0000018",
+        "input_cache_read": "0.000000022"
+      },
+      "supported_parameters": [
+        "max_tokens",
+        "temperature",
+        "stop",
+        "tools",
+        "tool_choice",
+        "response_format",
+        "structured_outputs"
+      ]
+    },
+    {
+      "id": "anthropic/claude-haiku-4.5",
+      "name": "Claude Haiku 4.5",
+      "owned_by": "anthropic",
+      "pricing": {
+        "input": "0.000001",
+        "output": "0.000005",
+        "input_cache_read": "0.0000001",
+        "input_cache_write": "0.00000125",
+        "web_search": "10",
+        "regional": {
+          "eu": {
+            "input": "0.0000011",
+            "output": "0.0000055",
+            "input_cache_read": "0.00000011",
+            "input_cache_write": "0.000001375"
+          },
+          "us": {
+            "input": "0.0000011",
+            "output": "0.0000055",
+            "input_cache_read": "0.00000011",
+            "input_cache_write": "0.000001375"
+          }
+        }
+      },
+      "supported_parameters": [
+        "max_tokens",
+        "temperature",
+        "stop",
+        "tools",
+        "tool_choice",
+        "reasoning",
+        "include_reasoning",
+        "response_format",
+        "structured_outputs"
+      ]
+    },
+    {
+      "id": "anthropic/claude-sonnet-4.5",
+      "name": "Claude Sonnet 4.5",
+      "owned_by": "anthropic",
+      "pricing": {
+        "input": "0.000003",
+        "input_tiers": [
+          {
+            "cost": "0.000003",
+            "min": 0,
+            "max": 200001
+          },
+          {
+            "cost": "0.000006",
+            "min": 200001
+          }
+        ],
+        "output": "0.000015",
+        "output_tiers": [
+          {
+            "cost": "0.000015",
+            "min": 0,
+            "max": 200001
+          },
+          {
+            "cost": "0.0000225",
+            "min": 200001
+          }
+        ],
+        "input_cache_read": "0.0000003",
+        "input_cache_read_tiers": [
+          {
+            "cost": "0.0000003",
+            "min": 0,
+            "max": 200001
+          },
+          {
+            "cost": "0.0000006",
+            "min": 200001
+          }
+        ],
+        "input_cache_write": "0.00000375",
+        "input_cache_write_tiers": [
+          {
+            "cost": "0.00000375",
+            "min": 0,
+            "max": 200001
+          },
+          {
+            "cost": "0.0000075",
+            "min": 200001
+          }
+        ],
+        "web_search": "10",
+        "regional": {
+          "eu": {
+            "input": "0.0000033",
+            "input_tiers": [
+              {
+                "cost": "0.0000033",
+                "min": 0,
+                "max": 200001
+              },
+              {
+                "cost": "0.0000066",
+                "min": 200001
+              }
+            ],
+            "output": "0.0000165",
+            "output_tiers": [
+              {
+                "cost": "0.0000165",
+                "min": 0,
+                "max": 200001
+              },
+              {
+                "cost": "0.00002475",
+                "min": 200001
+              }
+            ],
+            "input_cache_read": "0.00000033",
+            "input_cache_read_tiers": [
+              {
+                "cost": "0.00000033",
+                "min": 0,
+                "max": 200001
+              },
+              {
+                "cost": "0.00000066",
+                "min": 200001
+              }
+            ],
+            "input_cache_write": "0.000004125",
+            "input_cache_write_tiers": [
+              {
+                "cost": "0.000004125",
+                "min": 0,
+                "max": 200001
+              },
+              {
+                "cost": "0.00000825",
+                "min": 200001
+              }
+            ]
+          },
+          "us": {
+            "input": "0.0000033",
+            "input_tiers": [
+              {
+                "cost": "0.0000033",
+                "min": 0,
+                "max": 200001
+              },
+              {
+                "cost": "0.0000066",
+                "min": 200001
+              }
+            ],
+            "output": "0.0000165",
+            "output_tiers": [
+              {
+                "cost": "0.0000165",
+                "min": 0,
+                "max": 200001
+              },
+              {
+                "cost": "0.00002475",
+                "min": 200001
+              }
+            ],
+            "input_cache_read": "0.00000033",
+            "input_cache_read_tiers": [
+              {
+                "cost": "0.00000033",
+                "min": 0,
+                "max": 200001
+              },
+              {
+                "cost": "0.00000066",
+                "min": 200001
+              }
+            ],
+            "input_cache_write": "0.000004125",
+            "input_cache_write_tiers": [
+              {
+                "cost": "0.000004125",
+                "min": 0,
+                "max": 200001
+              },
+              {
+                "cost": "0.00000825",
+                "min": 200001
+              }
+            ]
+          }
+        }
+      },
+      "supported_parameters": [
+        "max_tokens",
+        "temperature",
+        "stop",
+        "tools",
+        "tool_choice",
+        "reasoning",
+        "include_reasoning",
+        "response_format",
+        "structured_outputs"
+      ]
+    },
+    {
+      "id": "deepseek/deepseek-v3.2",
+      "name": "DeepSeek V3.2",
+      "owned_by": "deepseek",
+      "pricing": {
+        "input": "0.00000062",
+        "output": "0.00000185",
+        "varies_by_provider": true
+      },
+      "supported_parameters": [
+        "max_tokens",
+        "temperature",
+        "stop",
+        "tools",
+        "tool_choice",
+        "reasoning",
+        "include_reasoning"
+      ]
+    },
+    {
+      "id": "google/gemini-2.5-flash",
+      "name": "Gemini 2.5 Flash",
+      "owned_by": "google",
+      "pricing": {
+        "input": "0.0000003",
+        "output": "0.0000025",
+        "input_cache_read": "0.00000003",
+        "web_search": "35",
+        "maps_search": "25",
+        "service_tiers": {
+          "priority": {
+            "input": "0.00000054",
+            "output": "0.0000045",
+            "input_cache_read": "0.000000054"
+          },
+          "flex": {
+            "input": "0.00000015",
+            "output": "0.00000125"
+          }
+        },
+        "regional": {
+          "eu": {
+            "input": "0.0000003",
+            "output": "0.0000025",
+            "input_cache_read": "0.00000003"
+          },
+          "us": {
+            "input": "0.0000003",
+            "output": "0.0000025",
+            "input_cache_read": "0.00000003"
+          }
+        }
+      },
+      "supported_parameters": [
+        "max_tokens",
+        "temperature",
+        "stop",
+        "tools",
+        "tool_choice",
+        "reasoning",
+        "include_reasoning",
+        "response_format",
+        "structured_outputs"
+      ]
+    },
+    {
+      "id": "google/gemini-2.5-flash-lite",
+      "name": "Gemini 2.5 Flash Lite",
+      "owned_by": "google",
+      "pricing": {
+        "input": "0.0000001",
+        "output": "0.0000004",
+        "input_cache_read": "0.00000001",
+        "web_search": "35",
+        "maps_search": "25",
+        "service_tiers": {
+          "priority": {
+            "input": "0.00000018",
+            "output": "0.00000072",
+            "input_cache_read": "0.000000018"
+          },
+          "flex": {
+            "input": "0.00000005",
+            "output": "0.0000002"
+          }
+        },
+        "regional": {
+          "eu": {
+            "input": "0.0000001",
+            "output": "0.0000004",
+            "input_cache_read": "0.00000001"
+          },
+          "us": {
+            "input": "0.0000001",
+            "output": "0.0000004",
+            "input_cache_read": "0.00000001"
+          }
+        }
+      },
+      "supported_parameters": [
+        "max_tokens",
+        "temperature",
+        "stop",
+        "tools",
+        "tool_choice",
+        "reasoning",
+        "include_reasoning",
+        "response_format",
+        "structured_outputs"
+      ]
+    },
+    {
+      "id": "mistral/codestral",
+      "name": "Mistral Codestral",
+      "owned_by": "mistral",
+      "pricing": {
+        "input": "0.0000003",
+        "output": "0.0000009",
+        "input_cache_read": "0.00000003"
+      },
+      "supported_parameters": [
+        "max_tokens",
+        "temperature",
+        "stop",
+        "tools",
+        "tool_choice",
+        "response_format",
+        "structured_outputs"
+      ]
+    },
+    {
+      "id": "mistral/mistral-large-3",
+      "name": "Mistral Large 3",
+      "owned_by": "mistral",
+      "pricing": {
+        "input": "0.0000005",
+        "output": "0.0000015",
+        "input_cache_read": "0.00000005"
+      },
+      "supported_parameters": [
+        "max_tokens",
+        "temperature",
+        "stop",
+        "tools",
+        "tool_choice",
+        "response_format",
+        "structured_outputs"
+      ]
+    }
+  ]
+}

@@ -138,7 +138,7 @@ async def step(value: str, body: Step):
         def generate():
             from openjarvis.core.types import Message as EngineMessage, Role
             from synvio.config import SYNVIOConfig
-            from synvio.runtime import engine_for
+            from .gateway import engine_for
             messages = [EngineMessage(role=Role.SYSTEM, content=INSTRUCTIONS)]
             messages.extend(EngineMessage(role=Role(message.role), content=message.content) for message in body.messages)
             def persist(event):

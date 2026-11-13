@@ -8,6 +8,7 @@ import './results.css'
 import './chat.css'
 import './studio.css'
 import './builder.css'
+import './workspace.css'
 
 createRoot(document.getElementById('root')).render(
   <React.StrictMode><App /></React.StrictMode>,

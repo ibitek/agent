@@ -6,6 +6,7 @@ Missing cache details mean an upper estimate, never a fabricated cache hit.
 import json
 from decimal import Decimal, ROUND_CEILING
 from types import SimpleNamespace
+from .retail import service_amount
 
 RATE_VERSION = "openai-standard-text-2026-11-13"
 RATE_SOURCE = "https://developers.openai.com/api/docs/models/"
@@ -15,6 +16,8 @@ RATES = {
     "gpt-4.1-mini": (Decimal("0.40"), Decimal("0.10"), Decimal("1.60")),
     "gpt-4.1": (Decimal("2.00"), Decimal("0.50"), Decimal("8.00")),
 }
+from .gateway import rates as gateway_rates
+RATES.update(gateway_rates())
 MILLION = Decimal(1_000_000)
 PRECISION = Decimal("0.000000001")
 
@@ -79,7 +82,7 @@ class MeteredEngine:
     Preflight assumes no cache discount and at most one token per UTF-8 byte
     plus generous message framing. Only known text models/payloads supported.
     An ambiguous provider failure retains its reservation and stops this meter.
-    The provider invoice, infra, tax and any future retail margin are separate.
+    Provider estimates remain separate from service-price estimates, infrastructure, tax and any future wallet ledger.
     """
     def __init__(self, engine, model, budget_usd, persist=lambda event: None):
         if model not in RATES:
@@ -108,6 +111,9 @@ class MeteredEngine:
         return {"currency": "USD", "scope": "model_only", "rate_version": RATE_VERSION,
                 "blocked": self.blocked,
                 "budget_usd": usd(self.budget), "estimated_cost_usd": usd(self.spent),
+                "service_estimated_cost_usd": service_amount(self.spent),
+                "service_budget_usd": service_amount(self.budget),
+                "service_reserved_usd": service_amount(self.reserved_unknown),
                 "unresolved_reservation_usd": usd(self.reserved_unknown),
                 "invoice_verified": False, "calls": self.calls}
 

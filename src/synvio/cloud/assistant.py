@@ -167,7 +167,7 @@ async def send(body: Send):
             def generate():
                 from openjarvis.core.types import Message as EngineMessage, Role
                 from synvio.config import SYNVIOConfig
-                from synvio.runtime import engine_for
+                from .gateway import engine_for
                 messages = [EngineMessage(role=Role.SYSTEM, content=SYSTEM + '\nExecute requests must contain the actual user requirements, never copy schema placeholder descriptions.')]
                 last_run = store.get(conversation["last_task_id"]) if conversation.get("last_task_id") else None
                 if last_run:

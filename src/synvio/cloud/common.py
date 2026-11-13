@@ -28,6 +28,12 @@ def local_reply() -> dict:
 
 
 def resolve_model(model_id: str) -> str:
+    if model_id.startswith('gateway:'):
+        from .gateway import SUPPORTED, connected
+        name = model_id.removeprefix('gateway:')
+        if name not in SUPPORTED or not connected():
+            raise HTTPException(403, 'Connect AI Gateway before selecting this provider.')
+        return name
     if model_id not in MODELS:
         raise HTTPException(422, "Unknown model.")
     # The expensive model needs an explicit server-side opt-in as well.
@@ -40,6 +46,7 @@ def resolve_model(model_id: str) -> str:
 
 def model_catalog() -> list[dict]:
     from .metering import RATES
+    from .retail import service_amount
     ready = bool(os.environ.get("OPENAI_API_KEY", "").strip())
     result = []
     for mode, model in MODELS.items():
@@ -47,8 +54,16 @@ def model_catalog() -> list[dict]:
             continue  # Retain old IDs for saved runs without duplicate choices.
         affordable = mode == "openai:low" or os.environ.get("SYNVIO_ALLOW_EXPENSIVE_MODELS") == "1"
         result.append({"id": mode, "provider": "openai", "engine": "cloud", "model": model, "reasoning_mode": mode.split(":")[1], "label": model, "available": ready and affordable, "unavailable_reason": None if ready and affordable else "The model API key is not configured." if not ready else "Model disabled in cost settings."})
-        rate = RATES[model]
+        rate = [service_amount(value) for value in RATES[model]]
         result[-1].update(reasoning_mode=reasoning_for(mode), pricing={"input_per_million": str(rate[0]), "cached_input_per_million": str(rate[1]), "output_per_million": str(rate[2]), "currency": "USD"}, description={"gpt-4o-mini": "Everyday · lowest cost", "gpt-4.1-mini": "Balanced · coding and instructions", "gpt-4.1": "Advanced · complex coding", "gpt-4o": "General purpose"}[model])
+    from .gateway import CATALOG, SUPPORTED, connected
+    from decimal import Decimal
+    for item in CATALOG['models']:
+        price = item['pricing']
+        supported = item['id'] in SUPPORTED
+        result.append({'id':'gateway:'+item['id'],'provider':item['owned_by'],'engine':'gateway','model':item['id'],'label':item['name'],
+            'available':supported and connected(), 'unavailable_reason':None if supported and connected() else 'Provider adapter pending rate verification.' if not supported else 'Connect AI Gateway to use this model.',
+            'description':'Via AI Gateway', 'pricing':{'input_per_million':service_amount(Decimal(price['input'])*1_000_000),'output_per_million':service_amount(Decimal(price['output'])*1_000_000),'cached_input_per_million':service_amount(Decimal(price.get('input_cache_read',price['input']))*1_000_000),'currency':'USD'}, 'pricing_verified_at':CATALOG['verified_at']})
     return result
 
 
