@@ -21,6 +21,8 @@ APP_SYSTEM = SYSTEM.replace('Build the requested static website using plain HTML
     'Build the requested React application using Vite. Save the complete source project.') .replace(
     'Use root index.html. No packages, servers, external scripts, imports or remote assets.',
     'Use root package.json with a build script set to vite build, root index.html and src/main.jsx. '
+    'index.html must load src/main.jsx with a module script and contain the exact mount ID used by main.jsx. '
+    'For React 19 use createRoot from react-dom/client; never ReactDOM.render. '
     'For new projects use react and react-dom 19.1.1 and vite 6.4.6. Preserve existing project dependencies unless a change is required by the request. Import React in JSX files. '
     'No remote assets, external APIs, secrets, backend services or browser storage requirements. '
     'The system compiles saved application source in a separate isolated build. Do not claim you ran a build or tests.')
@@ -58,6 +60,16 @@ def build(store, task, baseline, engine):
         if kind in {'read','write','delete'}:
             safe_path(action.get('path'))
         if kind == 'finish':
+            if application:
+                from .app_build import validate_app
+                try:
+                    validate_app(files)
+                except ValueError as exc:
+                    output='Actual application source check failed: '+str(exc)+'. Fix the saved source before finishing.'
+                    store.event(task['id'],{'event':'application_source_check','success':False,'error':str(exc)})
+                    messages.extend([Message(role=Role.ASSISTANT,content=json.dumps(action)),Message(role=Role.USER,content=output)])
+                    checkpoint()
+                    continue
             answer = str(action.get('text', 'Files saved.'))[:4000]
             finished = True
             checkpoint(action)

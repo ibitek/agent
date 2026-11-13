@@ -51,6 +51,7 @@ def test_react_source_is_not_falsely_reported_as_compiled():
     store = Store()
     engine = Engine([
         {'action':'write','path':'package.json','content':json.dumps({'scripts':{'build':'vite build'},'devDependencies':{'vite':'6.4.6'}})},
+        {'action':'write','path':'index.html','content':'<div id="root"></div><script type="module" src="/src/main.jsx"></script>'},
         {'action':'write','path':'src/main.jsx','content':'import React from "react"; export default function App(){return <h1>Hello</h1>}'},
         {'action':'finish','text':'Saved source.'},
     ])

@@ -33,3 +33,13 @@ def test_local_relative_assets_and_meta_refresh_removed():
 def test_relative_module_import_requires_build():
     result = build_preview({"index.html": '<script type="module" src="app.js"></script>', "app.js": "import {value} from './dependency.js';"})
     assert not result["available"]
+
+
+def test_runtime_monitor_is_scoped_and_does_not_weaken_sandbox_policy():
+    first=build_preview({'index.html':'<div id="app"></div><script>throw Error("broken")</script>'})
+    second=build_preview({'index.html':'<h1>Hello</h1>'})
+    assert first['runtime_token']!=second['runtime_token']
+    assert 'synvio-preview-runtime' in first['document']
+    assert 'unhandledrejection' in first['document']
+    assert "connect-src &#x27;none&#x27;" in first['document']
+    assert 'http://' not in first['document'] and 'https://' not in first['document']

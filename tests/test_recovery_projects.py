@@ -218,3 +218,45 @@ def test_resume_identifier_cannot_be_reused_with_a_different_spending_cap(client
     assert client.post(f'/api/tasks/{value}/resume',json={**body,'model_budget_usd':.02}).status_code==409
     assert client.post(f'/api/tasks/{value}/resume',json={**body,'request_id':'5'*32,'model_budget_usd':.02}).status_code==409
     assert len(store.history(10))==2
+
+
+def test_direct_build_request_with_other_project_restriction_skips_router(client,monkeypatch):
+    login(client)
+    calls=assistant_engine(monkeypatch,[])
+    result=client.post('/api/assistant',json={'request_id':'1'*32,'message':'Zbuduj strone w React + Vite. Nie zmieniaj innych projektow.'})
+    assert result.status_code==200,result.text
+    assert result.json()['message']['kind']=='execute'
+    assert result.json()['task']['status']=='queued'
+    assert calls==[]
+
+
+def test_start_doing_it_after_plan_uses_context_without_second_confirmation(client,monkeypatch):
+    login(client);conversation='2'*32
+    Store().put_json('conversation',conversation,{'id':conversation,'project_id':conversation,'last_task_id':None,'messages':[{'role':'user','content':'Plan a React website with two pages'},{'role':'assistant','kind':'reply','content':'Home and Pricing with a demo form.'}]})
+    calls=assistant_engine(monkeypatch,[])
+    result=client.post('/api/assistant',json={'request_id':'3'*32,'conversation_id':conversation,'message':'okay start doing it'})
+    assert result.status_code==200,result.text
+    task=Store().get(result.json()['task']['id'])
+    assert 'Home and Pricing' in task['task'] and task['runtime']=='app'
+    assert result.json()['message']['confirmation'] is None and calls==[]
+
+
+def test_rebuild_chat_command_does_not_invoke_model_or_file_worker(client,monkeypatch):
+    store,value=seeded(client,'completed');conversation='4'*32
+    store.put_json('conversation',conversation,{'id':conversation,'last_task_id':value,'messages':[]})
+    calls=assistant_engine(monkeypatch,[]);builds=[]
+    async def fake_build(value,body):builds.append(value);return {'status':'building'}
+    monkeypatch.setattr(cloud,'build_application_preview',fake_build)
+    result=client.post('/api/assistant',json={'request_id':'5'*32,'conversation_id':conversation,'message':'rebuild preview'})
+    assert result.status_code==200,result.text
+    assert result.json()['message']['kind']=='build'
+    assert result.json()['task'] is None and calls==[] and builds==[value]
+
+
+def test_old_empty_build_is_not_presented_as_available_preview(client):
+    store,value=seeded(client,'completed');store.fields(value,runtime='app')
+    store.put_json('files',value,{'package.json':json.dumps({'devDependencies':{'vite':'6.4.6'},'scripts':{'build':'vite build'}}),'index.html':'<div id="app"></div>'})
+    store.put_json('built-files',value,{'dist/index.html':'<div id="app"></div>'})
+    result=client.get(f'/api/tasks/{value}/preview').json()
+    assert not result['available'] and result['source_invalid']
+    assert 'module script' in result['reason']

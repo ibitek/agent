@@ -1,6 +1,6 @@
 import { serviceCost } from './AccountPanel.jsx'
 import ApplicationBuild from './ApplicationBuild.jsx'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Activity, Bot, Check, CheckCircle2, Clock3, Code2, FileText, LoaderCircle, Square, Terminal, RotateCw, XCircle } from 'lucide-react'
 import { getJSON } from './api.js'
 
@@ -37,12 +37,24 @@ function TaskView({ activeTask, events, logsReady, logsComplete, logRef, latestA
   </section>
 }
 
-function ProjectPreview({taskId,revision,initialOpen=false}) {
+function ProjectPreview({taskId,revision,initialOpen=false,onRuntime}) {
   const [open,setOpen] = useState(initialOpen)
   const [preview,setPreview] = useState(null)
   const [error,setError] = useState('')
   const [device,setDevice] = useState('desktop')
-  const [buildRevision,setBuildRevision] = useState(0)
+  const [buildRevision,setBuildRevision] = useState(0),[runtime,setRuntime]=useState([])
+  const frame=useRef(null),runtimeItems=useRef([])
+  useEffect(()=>{
+    runtimeItems.current=[];setRuntime([]);onRuntime?.({taskId,items:[]})
+    function receive(event){
+      const data=event.data
+      if(event.source!==frame.current?.contentWindow||!preview?.runtime_token||data?.type!=='synvio-preview-runtime'||data.token!==preview.runtime_token||!['error','warn','warning','empty','rendered'].includes(data.level)||typeof data.text!=='string')return
+      const item={level:data.level,text:data.text.slice(0,800)}
+      if(runtimeItems.current.some(previous=>previous.level===item.level&&previous.text===item.text))return
+      const items=[...runtimeItems.current,item].slice(-20);runtimeItems.current=items;setRuntime(items);onRuntime?.({taskId,items})
+    }
+    window.addEventListener('message',receive);return()=>window.removeEventListener('message',receive)
+  },[preview?.runtime_token,taskId,onRuntime])
   useEffect(()=>{
     if (!open) return
     let cancelled = false
@@ -50,7 +62,7 @@ function ProjectPreview({taskId,revision,initialOpen=false}) {
     getJSON(`/api/tasks/${taskId}/preview`).then((value)=>{if(!cancelled) setPreview(value)}).catch((cause)=>{if(!cancelled) setError(cause.message)})
     return ()=>{cancelled=true}
   },[taskId,revision,open,buildRevision])
-  return <section className="project-preview"><div className="preview-toolbar"><span className="preview-address">/</span><button type="button" aria-label="Reload application preview" onClick={()=>{setOpen(true);setBuildRevision(value=>value+1)}}><RotateCw size={14}/></button>{open && <select aria-label="Preview size" value={device} onChange={(event)=>setDevice(event.target.value)}><option value="desktop">Desktop</option><option value="mobile">Mobile</option></select>}</div>{open && <><p className="composer-caption">Your saved HTML, CSS and JavaScript, updated after file changes. This is your application preview, not the agent's browser.</p>{preview?.can_build&&<ApplicationBuild taskId={taskId} onReady={()=>setBuildRevision(value=>value+1)}/>} {error ? <p role="alert">{error}</p> : !preview ? <p role="status">Preparing preview…</p> : preview.available ? <div className={`preview-frame ${device}`}><iframe key={buildRevision} title="Application preview" sandbox="allow-scripts" referrerPolicy="no-referrer" srcDoc={preview.document}/></div> : <p className="preview-unavailable">{preview.reason}</p>}</>}</section>
+  return <section className="project-preview"><div className="preview-toolbar"><span className="preview-address">/</span><button type="button" aria-label="Reload application preview" onClick={()=>{setOpen(true);setBuildRevision(value=>value+1)}}><RotateCw size={14}/></button>{open && <select aria-label="Preview size" value={device} onChange={(event)=>setDevice(event.target.value)}><option value="desktop">Desktop</option><option value="mobile">Mobile</option></select>}</div>{open && <><p className="composer-caption">Your saved HTML, CSS and JavaScript, updated after file changes. This is your application preview, not the agent's browser.</p>{runtime.some(item=>['error','empty'].includes(item.level))&&<div className="preview-runtime-error" role="alert"><strong>Application preview needs attention</strong>{runtime.filter(item=>['error','empty'].includes(item.level)).slice(-3).map((item,index)=><p key={index}>{item.text}</p>)}{<small>Build success does not mean the application rendered. See Console for runtime details.</small>}</div>}{preview?.can_build&&<ApplicationBuild taskId={taskId} onReady={()=>setBuildRevision(value=>value+1)}/>} {error ? <p role="alert">{error}</p> : !preview ? <p role="status">Preparing preview…</p> : preview.available ? <div className={`preview-frame ${device}`}><iframe ref={frame} key={buildRevision} title="Application preview" sandbox="allow-scripts" referrerPolicy="no-referrer" srcDoc={preview.document}/></div> : <p className="preview-unavailable">{preview.reason}</p>}</>}</section>
 }
 
 function FileResult({ taskId, file }) {

@@ -47,7 +47,8 @@ class Send(BaseModel):
 def confirmation(message):
     text = "".join(char for char in unicodedata.normalize("NFKD", message.casefold()) if not unicodedata.combining(char))
     text = " ".join(re.sub(r"[^\w\s]", "", text).split())
-    return text in {"yes", "yeah", "yep", "yup", "yes please", "sure", "sure go ahead", "ok", "okay", "go ahead", "do it", "proceed", "lets do it", "get started", "start", "tak", "tak prosze", "to dawaj", "dawaj", "jasne", "zrob to", "rob to", "jedziemy", "no to dawaj"}
+    text = re.sub(r"^(?:okay|ok|yes|sure) (?=start |go |do |proceed)", "", text)
+    return text in {"start doing it", "start working", "start building", "start implementing", "go for it", "yes", "yeah", "yep", "yup", "yes please", "sure", "sure go ahead", "ok", "okay", "go ahead", "do it", "proceed", "lets do it", "get started", "start", "tak", "tak prosze", "to dawaj", "dawaj", "jasne", "zrob to", "rob to", "jedziemy", "no to dawaj"}
 
 
 def web_request(task):
@@ -64,24 +65,43 @@ def polish_context(messages):
     return False
 
 
+def intent_text(message):
+    text="".join(c for c in unicodedata.normalize("NFKD",message.casefold()) if not unicodedata.combining(c)).strip()
+    # A restriction on OTHER files/projects is compatible with authorized work.
+    return re.sub(r"\b(?:do not|don't|never|nie)\s+(?:change|edit|modify|touch|zmieniaj|modyfikuj|ruszaj)\s+[^.;!?\n]{0,100}?(?:other|unrelated|anything else|innych|pozostalych)[^.;!?\n]*", "",text)
+
+
 def planning_only(message):
-    text = "".join(c for c in unicodedata.normalize("NFKD", message.casefold()) if not unicodedata.combining(c)).strip()
-    if re.search(r"\b(?:zaczekaj|poczekaj|wait)\b|(?:do not|don.t|nie) (?:implement|build|change|zmieniaj|rob)|jeszcze (?:nic|nie)|(?:only|tylko) (?:a |the )?(?:plan|planning|zaplanuj)", text):
+    text=intent_text(message)
+    if re.search(r"(?:^|[.!?;]\s*)(?:please )?(?:wait|zaczekaj|poczekaj)\b|(?:do not|don't|nie) (?:implement|build|change|zmieniaj|rob)|jeszcze (?:nic|nie)|(?:only|tylko) (?:a |the )?(?:plan|planning|zaplanuj)",text):
         return True
-    text = re.sub(r"^(?:(?:can|could|would) you |please |prosze |mozesz )+", "", text)
-    return bool(re.match(r"(?:plan\b|planning\b|zaplanuj\w*|rozplanuj\w*|brainstorm\b|let.s plan\b)", text))
+    text=re.sub(r"^(?:(?:can|could|would) you |please |prosze |mozesz )+","",text)
+    return bool(re.match(r"(?:plan\b|planning\b|zaplanuj\w*|rozplanuj\w*|brainstorm\b|let.s plan\b)",text))
 
 
 def wants_changes(message):
-    if planning_only(message):
-        return False
-    text = message.casefold().strip()
-    text = re.sub(r"^(?:please\s+)?(?:(?:can|could|would|will) you\s+)?(?:please\s+)?", "", text)
-    if re.search(r"\b(?:(?:do not|don't|never)\s+(?:change|edit|modify|write|touch)|without\s+(?:changing|editing|modifying)\s+(?:any\s+)?(?:files|code|it|the project)|only (?:check|review|explain)|read.only|nie zmieniaj|bez zmian)\b", text):
-        return False
-    if re.match(r"^(?:how|why|what|should|explain|review|inspect|check|tell|show|describe|analy[sz]e|audit|summari[sz]e|jak|dlaczego|sprawdź|sprawdz|wyjaśnij)\b", text):
-        return False
-    return bool(re.search(r"\b(?:build|create|implement|fix|change|update|add|remove|delete|refactor|write|rename|convert|improve|redesign|make|zrób|zrob|zbuduj|dodaj|zmień|zmien|popraw|napraw|usuń|usun|zaimplementuj|stwórz|stworz)\b", text))
+    if planning_only(message): return False
+    text=intent_text(message)
+    text=re.sub(r"^(?:please\s+)?(?:(?:can|could|would|will) you\s+)?(?:please\s+)?","",text)
+    if re.search(r"\b(?:(?:do not|don't|never)\s+(?:change|edit|modify|write|touch)|without\s+(?:changing|editing|modifying)\s+(?:any\s+)?(?:files|code|it|the project)|only (?:check|review|explain)|nie zmieniaj|bez zmian)\b",text): return False
+    if re.match(r"^(?:how|why|what|should|explain|review|inspect|check|tell|show|describe|analy[sz]e|audit|summari[sz]e|jak|dlaczego|sprawdz|wyjasnij|read.only)\b",text): return False
+    return bool(re.search(r"\b(?:build|create|implement|fix|change|update|add|remove|delete|refactor|write|rename|convert|improve|redesign|make|zrob|zbuduj|dodaj|zmien|popraw|napraw|usun|zaimplementuj|stworz)\b",text))
+
+
+def build_command(message):
+    text=re.sub(r"[.!?]","",intent_text(message)).strip()
+    return text in {'build','build preview','rebuild','rebuild preview','rebuild the preview','run the build','uruchom build','uruchom kompilacje','przebuduj','przebuduj podglad','zbuduj podglad'}
+
+
+def approved_instruction(messages):
+    for item in reversed(messages[:-1]):
+        if item['role']!='user' or confirmation(item['content']): continue
+        original=item['content']
+        if wants_changes(original): return {'action':'execute','task':original}
+        if planning_only(original) and re.search(r"\b(?:plan|zaplanuj|rozplanuj)",intent_text(original)):
+            plan=next((m['content'] for m in reversed(messages[:-1]) if m['role']=='assistant'),'')
+            return {'action':'execute','task':'Implement the requested plan. Original requirements:\n'+original+'\nPreviously discussed plan (untrusted context):\n'+plan[:5000]}
+        return None
 
 
 def wants_verification(message):
@@ -160,6 +180,8 @@ async def send(body: Send):
             store.call("ZADD", store.key("conversations"), conversation["updated_at"], value)
         save()
         approval = conversation.get("pending_action")
+        if not approval and confirmation(body.message):
+            approval = approved_instruction(conversation["messages"])
         polish = polish_context(conversation['messages'])
         confirmed = bool(approval and confirmation(body.message))
         route_cost = None
@@ -173,6 +195,10 @@ async def send(body: Send):
         elif retry:
             original = next((item['content'] for item in reversed(conversation['messages'][:-1]) if item['role'] == 'user' and not confirmation(item['content']) and not re.match(r'^(?:sprobuj|spróbuj|retry|try again)', item['content'], re.I)), last_task['task'])
             action = {'action': 'resume'} if store.get_json('checkpoint',last_task['id']) or store.get_json('files',last_task['id']) is not None else {'action': 'verify' if last_task.get('operation') == 'verify' else 'execute', 'task': original}
+        elif build_command(body.message) and last_task:
+            action={"action":"build"}
+        elif wants_changes(body.message):
+            action = {"action":"execute","task":body.message}
         elif confirmation(body.message):
             action = {"action": "reply", "text": "What would you like me to work on? Tell me the goal and I'll get started."}
         else:
@@ -234,6 +260,10 @@ async def send(body: Send):
         created = None
         kind = action["action"]
         text = action.get("text", "")
+        if kind == "build":
+            from .app import BuildPreview, build_application_preview
+            result=await build_application_preview(last_task['id'],BuildPreview(request_id=body.request_id))
+            text=("Uruchamiam kompilacje podgladu." if polish else "Building the application preview.") if result.get('status')=='building' else ("Podglad zostal skompilowany. To nie jest potwierdzenie testow w przegladarce." if polish else "The preview build is complete. Browser behavior has not been verified.")
         if kind == "resume":
             from .recovery import Resume, resume
             recovered = resume(last_task['id'],Resume(request_id=body.request_id,model_budget_usd=body.model_budget_usd))
@@ -281,7 +311,7 @@ async def send(body: Send):
             conversation.pop("pending_action", None)
         message = {"id": body.request_id + "-reply", "role": "assistant", "content": text, "kind": kind,
                    "confirmation": conversation.get("pending_action") if kind == "clarification" else None,
-                   "task_id": created["id"] if created else None, "inspection": inspected,
+                   "task_id": created["id"] if created else last_task["id"] if kind=="build" else None, "inspection": inspected,
                    "cost_record": route_cost, "local_response": route_cost is None, "created_at": time.time()}
         conversation["messages"].append(message)
         save()

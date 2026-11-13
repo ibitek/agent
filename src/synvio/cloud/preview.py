@@ -1,5 +1,7 @@
 """Self-contained static web previews, returned as JSON, never served on app origin."""
 import base64
+import json
+import secrets
 import posixpath
 from html import escape
 from html.parser import HTMLParser
@@ -7,6 +9,18 @@ from urllib.parse import unquote, urlsplit
 
 CSP = "default-src 'none'; script-src 'unsafe-inline' data:; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
 MIMES = {".svg": "image/svg+xml", ".js": "text/javascript", ".mjs": "text/javascript"}
+
+
+RUNTIME_MONITOR = r"""<script>(function(){
+const token=__TOKEN__,pending=[];
+let count=0;
+function send(level,text){if(count++>30)return;parent.postMessage({type:'synvio-preview-runtime',token,level,text:String(text).replace(/data:[^\s]+/g,'[inline asset]').slice(0,800)},'*')}
+addEventListener('error',e=>{const text=e.message||'A preview resource failed to load';pending.push(text);send('error',text)},true);
+addEventListener('unhandledrejection',e=>{const text=String(e.reason?.message||e.reason||'Unhandled promise rejection');pending.push(text);send('error',text)});
+addEventListener('securitypolicyviolation',e=>send('warning','Preview security policy blocked '+e.violatedDirective));
+for(const level of ['warn','error']){const original=console[level];console[level]=function(...args){send(level,args.map(v=>typeof v==='string'?v:typeof v).join(' '));return original.apply(console,args)}}
+addEventListener('DOMContentLoaded',()=>{setTimeout(()=>pending.slice(-10).forEach(text=>send('error',text)),100);setTimeout(()=>{const root=document.getElementById('root')||document.getElementById('app');const empty=root?root.childNodes.length===0:!document.body?.textContent?.trim();send(empty?'empty':'rendered',empty?'The application mount is empty. Compilation alone does not verify rendering.':'Application content detected. Interactive behavior has not been verified.')},1500)});
+})();</script>"""
 
 
 class NeedsBuild(ValueError):
@@ -81,7 +95,9 @@ def build_preview(files):
         parser.close()
     except (NeedsBuild, ValueError) as exc:
         return {"available": False, "reason": str(exc)}
-    document = "<!doctype html><meta charset=utf-8><meta http-equiv=Content-Security-Policy content=\"" + escape(CSP, quote=True) + "\">" + "".join(parser.output)
+    runtime_token=secrets.token_hex(16)
+    monitor=RUNTIME_MONITOR.replace("__TOKEN__",json.dumps(runtime_token))
+    document = "<!doctype html><meta charset=utf-8><meta http-equiv=Content-Security-Policy content=\"" + escape(CSP, quote=True) + "\">" + monitor + "".join(parser.output)
     if len(document.encode()) > 3 * 1024 * 1024:
         return {"available": False, "reason": "The preview exceeds the size limit."}
-    return {"available": True, "kind": "static_web", "entry": entry, "document": document}
+    return {"available": True, "kind": "static_web", "entry": entry, "document": document,"runtime_token":runtime_token}

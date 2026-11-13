@@ -471,3 +471,40 @@ Final validation for this release: 313 Python tests passed through verify_offlin
 is included in the offline suite; mocked integration tests do not establish that
 real cloud VMs, provider calls, GitHub App permissions or browser vision work.
 Those external checks were not run. No OpenJarvis source/install files were edited.
+
+## Blank React preview and command execution fix (2026-11-13)
+
+Production inspection of nexthelpOS identified two independent source errors:
+index.html contained only an empty #app element and no module entry, while
+src/main.jsx called ReactDOM.render against React 19. The previous Vite build
+therefore transformed one module and successfully emitted empty HTML. The current
+owner project was repaired through versioned file editing: main.jsx now uses
+createRoot from react-dom/client and index.html loads /src/main.jsx. Both original
+file versions remain in History. No new model or cloud VM was started for repair.
+
+Intent checks now distinguish prohibitions on OTHER projects/unrelated files from
+prohibitions on all work. Explicit implementation requests queue their actual
+requirements directly without a separate paid routing call. Natural confirmations
+such as "okay start doing it" can authorize a preceding plan. The redundant Start
+this work button is removed. Rebuild preview is handled as an explicit chat command
+without invoking an implementation model; its existing isolated compute charge
+and build allowance still apply. Failed builds are never silently retried.
+
+App source validation rejects absent module entries, missing linked entry files,
+missing React mounts and known ReactDOM.render usage with React 19 before a VM is
+allocated. A builder finish action receives actual validation feedback and can
+repair its source within the existing step/cost cap. Previously cached empty builds
+are no longer presented as available React previews when their source is invalid.
+
+The opaque-origin iframe now sends bounded runtime errors, rejected promises,
+security-policy warnings and empty-mount diagnostics back to the workspace. The
+parent checks both the exact iframe window and a per-document random token; text
+is escaped by React. It retains allow-scripts only, connect-src none and all other
+preview restrictions. Runtime messages appear above Preview and in Console/Problems.
+Content detection is a diagnostic, not proof of interactive browser tests or a
+security attestation. Compiler success is labeled Build completed.
+
+Validation: 329 offline Python tests, 6 polling tests and the production frontend
+build passed. A local browser fixture confirmed actual runtime error/empty-mount
+messages reach Preview and Console. Real nexthelpOS source fixes were saved in
+production; its new cloud build was not initiated by this verification.

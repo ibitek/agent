@@ -21,3 +21,17 @@ def test_read_only_requests_do_not_authorize_changes(message):
 @pytest.mark.parametrize("message", ["Build a calculator", "Please fix the broken button", "Can you add a dark theme?", "Make it blue", "Implement the design", "Zrob kalkulator"])
 def test_explicit_change_requests_allow_execution(message):
     assert wants_changes(message)
+
+@pytest.mark.parametrize('text',[
+    'Zbuduj strone. Nie zmieniaj innych projektow.',
+    'Build a new app. Do not change unrelated files.',
+    'Create a read-only dashboard',
+])
+def test_scope_restrictions_do_not_block_requested_implementation(text):
+    from synvio.cloud.assistant import planning_only
+    assert wants_changes(text)
+    assert not planning_only(text)
+
+@pytest.mark.parametrize('text',['okay start doing it','ok start working','start building','sure go ahead'])
+def test_natural_start_followups_are_confirmations(text):
+    assert confirmation(text)

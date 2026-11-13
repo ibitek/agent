@@ -462,6 +462,10 @@ def download(value: str):
 def preview(value: str):
     store = get_store()
     item = task_row(store, value)
+    if item.get('runtime')=='app' and item['status'] not in {'queued','running'}:
+        from .app_build import validate_app
+        try: validate_app(store.get_json('files',value) or {})
+        except ValueError as exc: return {'available':False,'can_build':False,'reason':str(exc),'source_invalid':True}
     built = store.get_json('built-files', value)
     if built is not None:
         return {**build_preview(built), 'kind':'built_application', 'can_build':True, 'build':store.get_json('application-build', value)}

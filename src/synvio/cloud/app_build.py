@@ -1,6 +1,10 @@
 """Owner-triggered Vite builds in disposable VMs; only text artifacts return."""
 import json
+import posixpath
+import re
 import time
+from html.parser import HTMLParser
+from urllib.parse import unquote, urlsplit
 
 from .common import MAX_PROJECT_BYTES, public_error, validate_files
 from .sandbox_runner import BoundedOutput
@@ -23,6 +27,52 @@ Path('/vercel/sandbox/preview-artifacts.json').write_text(json.dumps(out),encodi
 '''
 
 
+class AppEntry(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.modules, self.ids, self.inline, self.in_module = [], set(), [], False
+
+    def handle_starttag(self, tag, attrs):
+        values=dict(attrs)
+        if values.get('id'): self.ids.add(values['id'])
+        if tag=='script' and values.get('type')=='module':
+            self.in_module=not bool(values.get('src'))
+            if values.get('src'): self.modules.append(values['src'])
+
+    def handle_data(self, data):
+        if self.in_module: self.inline.append(data)
+
+    def handle_endtag(self, tag):
+        if tag=='script': self.in_module=False
+
+
+def validate_entry(files, package):
+    parser=AppEntry()
+    parser.feed(files.get('index.html',''))
+    inline=''.join(parser.inline).strip()
+    if not parser.modules and not inline:
+        raise ValueError('index.html does not load an application entry. Add a module script pointing to src/main.jsx; an empty HTML build is not a working React preview.')
+    source=[inline]
+    for url in parser.modules:
+        parsed=urlsplit(url)
+        name=posixpath.normpath(unquote(parsed.path).lstrip('/'))
+        if parsed.scheme or parsed.netloc or name.startswith('../') or name not in files:
+            raise ValueError('Application module entry is missing or external: '+url[:150])
+        source.append(files[name])
+    code='\n'.join(source)
+    deps={**package.get('dependencies',{}),**package.get('devDependencies',{})}
+    version=re.search(r'\d+',str(deps.get('react','')))
+    if version and int(version.group())>=19 and re.search(r'\bReactDOM\s*\.\s*render\s*\(',code):
+        raise ValueError('React 19 does not support ReactDOM.render. Use createRoot from react-dom/client.')
+    mounts=re.findall(r'createRoot\s*\(\s*document\.getElementById\s*\(\s*[\'"]([^\'"]+)[\'"]\s*\)',code)
+    aliases=re.findall(r'(?:const|let|var)\s+(\w+)\s*=\s*document\.getElementById\s*\(\s*[\'"]([^\'"]+)[\'"]\s*\)',code)
+    mounts += [mount for alias,mount in aliases if re.search(r'createRoot\s*\(\s*'+re.escape(alias)+r'\s*\)',code)]
+    for mount in mounts:
+        if mount not in parser.ids:
+            raise ValueError('React mount element is missing from index.html: '+mount[:100])
+
+
+
 def validate_app(files):
     files = validate_files(files)
     try:
@@ -32,6 +82,7 @@ def validate_app(files):
             raise ValueError()
     except (ValueError, TypeError, AttributeError):
         raise ValueError('This preview supports Vite projects with package.json and a build script.') from None
+    validate_entry(files,package)
     return files
 
 

@@ -8,7 +8,7 @@ import pytest
 from synvio.cloud.app_build import build, validate_app
 from test_web_builder import Store
 
-FILES = {'package.json':json.dumps({'scripts':{'build':'vite build'},'devDependencies':{'vite':'6.4.6'}}), 'index.html':'<div id="root"></div>'}
+FILES = {'package.json':json.dumps({'scripts':{'build':'vite build'},'devDependencies':{'vite':'6.4.6'}}), 'index.html':'<div id="root"></div><script type="module" src="/src/main.jsx"></script>', 'src/main.jsx':'document.getElementById("root").textContent="Hello"'}
 
 
 @pytest.mark.parametrize('files', [{}, {'package.json':'not JSON'}, {'package.json':'[]'}, {'package.json':'{}'}])
@@ -67,3 +67,19 @@ def test_isolated_build_network_files_credentials_and_cleanup(monkeypatch, faile
     if not failed:
         assert store.saved['built-files','task']['dist/index.html'] == '<h1>Built app</h1>'
         assert result['browser_verified'] is False
+
+@pytest.mark.parametrize('index,main,expected',[
+    ('<div id="app"></div>', 'createRoot(document.getElementById("app")).render(<App/>);','does not load'),
+    ('<div id="app"></div><script type="module" src="/src/main.jsx"></script>', 'ReactDOM.render(<App/>,document.getElementById("app"));','ReactDOM.render'),
+    ('<div id="root"></div><script type="module" src="/src/main.jsx"></script>', 'createRoot(document.getElementById("app")).render(<App/>);','mount element'),
+])
+def test_blank_and_incompatible_react_sources_rejected_before_allocation(index,main,expected,monkeypatch):
+    from vercel import sandbox
+    monkeypatch.setattr(sandbox,'create_sandbox',lambda **kwargs:pytest.fail('No VM should be allocated for broken source'))
+    files={'package.json':json.dumps({'dependencies':{'react':'19.1.1','react-dom':'19.1.1'},'devDependencies':{'vite':'6.4.6'},'scripts':{'build':'vite build'}}),'index.html':index,'src/main.jsx':main}
+    with pytest.raises(ValueError,match=expected):asyncio.run(build(Store(),'task','request',files))
+
+
+def test_matching_module_entry_and_react19_bootstrap_accepted():
+    files={**FILES,'package.json':json.dumps({'dependencies':{'react':'19.1.1'},'devDependencies':{'vite':'6.4.6'},'scripts':{'build':'vite build'}}),'src/main.jsx':'import {createRoot} from "react-dom/client";createRoot(document.getElementById("root")).render(<App/>);'}
+    assert validate_app(files)==files
