@@ -47,7 +47,7 @@ def resume(value:str,body:Resume):
         if head and head not in {value,task.get('parent_id')}: raise HTTPException(409,'A newer project revision exists. Continue from that revision.')
         store.put_json('files',value,files)
         store.put_json('thread-head',thread,value)
-        created=create_task(Task(task=task['task'],parent_id=value,project_id=task.get('project_id'),runtime=task.get('runtime','python'),operation=task.get('operation','edit'),model_id=task['model_id'],model_budget_usd=body.model_budget_usd))
+        created=create_task(Task(images=store.get(value).get('images',[]),task=task['task'],parent_id=value,project_id=task.get('project_id'),runtime=task.get('runtime','python'),operation=task.get('operation','edit'),model_id=task['model_id'],model_budget_usd=body.model_budget_usd))
         new_id=created['id']
         checkpoint=store.get_json('checkpoint',value)
         store.fields(new_id,resume_from=value,resume_checkpoint=checkpoint if task.get('runtime') in {'web','app','source'} else None)

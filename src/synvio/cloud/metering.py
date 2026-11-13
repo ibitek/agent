@@ -7,6 +7,7 @@ import json
 from decimal import Decimal, ROUND_CEILING
 from types import SimpleNamespace
 from .retail import service_amount
+from .images import VISION_TOKENS, validate_images, require_vision
 
 RATE_VERSION = "openai-standard-text-2026-11-13"
 RATE_SOURCE = "https://developers.openai.com/api/docs/models/"
@@ -124,15 +125,25 @@ class MeteredEngine:
             raise BudgetExceeded("Only the fixed JSON response format is supported by this budget guard.")
         messages = list(messages)
         payload = []
+        image_tokens = 0
+        image_payload = []
         for message in messages:
             content = message.content
             if not isinstance(content, str):
                 raise BudgetExceeded("Budget checks currently support text messages only.")
-            payload.append({"role": str(message.role), "content": content})
+            role = getattr(message.role, "value", str(message.role))
+            payload.append({"role": role, "content": content})
+            images = validate_images(getattr(message, "images", None) or [])
+            require_vision(model, images)
+            image_tokens += len(images) * VISION_TOKENS.get(model, 0)
+            parts = ([{"type": "text", "text": content}] + [{"type": "image_url", "image_url": {"url": value, "detail": "low"}} for value in images]) if images else content
+            image_payload.append({"role": role, "content": parts})
+        if image_tokens and self.observed is None:
+            raise BudgetExceeded("This engine does not support metered image inputs.")
         output_limit = count(max_tokens)
         if not 1 <= output_limit <= 16384:
             raise BudgetExceeded("Invalid response limit.")
-        input_upper = len(json.dumps(payload, ensure_ascii=False).encode("utf-8")) + 1024 + 32 * len(payload)
+        input_upper = len(json.dumps(payload, ensure_ascii=False).encode("utf-8")) + 1024 + 32 * len(payload) + image_tokens
         rate_in, _, rate_out = RATES[model]
         reservation = (input_upper * rate_in + output_limit * rate_out) / MILLION
         if self.spent + self.reserved_unknown + reservation > self.budget:
@@ -146,7 +157,11 @@ class MeteredEngine:
             if self.observed:
                 self.observed.usage = None
                 self.observed.response_id = None
-            result = self.engine.generate(messages, model=model, max_tokens=output_limit, **kwargs)
+            if image_tokens:
+                response = self.observed.create(model=model, messages=image_payload, max_tokens=output_limit, **kwargs)
+                result = {"content": response.choices[0].message.content or "", "usage": self.observed.usage}
+            else:
+                result = self.engine.generate(messages, model=model, max_tokens=output_limit, **kwargs)
             if self.observed and self.observed.usage is not None:
                 result = {**result, "usage": self.observed.usage}
             cost, usage = usage_cost(model, result.get("usage") or {})

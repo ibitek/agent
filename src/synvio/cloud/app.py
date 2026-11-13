@@ -66,7 +66,11 @@ class Chat(BaseModel):
     history: list[Message] = Field(default_factory=list, max_length=12)
 
 
+from .images import Images, require_vision
+
+
 class Task(BaseModel):
+    images: Images = Field(default_factory=list)
     project_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
     runtime: Literal["python", "web", "app", "source"] = "python"
     operation: Literal["edit", "verify"] = "edit"
@@ -255,7 +259,8 @@ def task_row(store, value):
             store.event(value, {"event": "task_error", "error": "The run timed out."})
             store.release(value)
         item = store.get(value)
-    return {**item, "cancellation_supported": item["status"] == "queued", "download_available": bool(item.get("report"))}
+    public = {key: value for key, value in item.items() if key != "images"}
+    return {**public, "image_count": len(item.get("images", [])), "cancellation_supported": item["status"] == "queued", "download_available": bool(item.get("report"))}
 
 
 @app.post("/api/tasks", status_code=202)
@@ -267,6 +272,12 @@ def create_task(body: Task):
     if not tasks_ready(body.runtime):
         raise HTTPException(503, health()["tasks_unavailable_reason"])
     model = resolve_model(body.model_id)
+    try:
+        require_vision(model, body.images)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    if body.images and body.runtime not in {"web", "app", "source"}:
+        raise HTTPException(422, "Image-guided work currently requires a web or source project.")
     store = get_store()
     parent = None
     if body.parent_id:
@@ -281,6 +292,7 @@ def create_task(body: Task):
     now = time.time()
     value = uuid.uuid4().hex
     item = {"id": value, "model_budget_usd": body.model_budget_usd, "task": body.task, "workspace": PROJECT, "model": model, "model_id": body.model_id, "status": "queued", "created_at": now, "updated_at": now, "deadline": now + JOB_SECONDS + 60, "report": None, "error": None}
+    item["images"] = body.images
     item.update(project_id=parent.get("project_id") if parent else body.project_id, runtime=body.runtime, operation=body.operation, parent_id=body.parent_id, thread_id=parent.get("thread_id", parent["id"]) if parent else value,
                 followup_context=context_for(store, parent) if parent else [])
     if not store.create(item):

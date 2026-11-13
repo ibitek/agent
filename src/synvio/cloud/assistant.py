@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from .common import greeting, local_reply, public_error, resolve_model, safe_path
 from .metering import BudgetExceeded, MeteredEngine
 from .store import Store, ready
+from .images import Images, require_vision
 
 router = APIRouter(prefix="/api")
 SYSTEM = """You are SYNVIO, a practical AI assistant and coding agent. Default to
@@ -36,6 +37,7 @@ SYSTEM += "\nPlanning, brainstorming and requests to wait never authorize execut
 
 
 class Send(BaseModel):
+    images: Images = Field(default_factory=list)
     request_id: str = Field(pattern=r"^[a-f0-9]{32}$")
     conversation_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
     parent_task_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
@@ -148,6 +150,11 @@ def files_for(store, conversation):
 @router.post("/assistant")
 async def send(body: Send):
     from .app import Task, create_task, tasks_ready
+    try:
+        if body.images:
+            require_vision(resolve_model(body.model_id), body.images)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
     store = Store()
     value = body.conversation_id or body.request_id
     fingerprint = hashlib.sha256(body.model_dump_json().encode()).hexdigest()
@@ -173,7 +180,7 @@ async def send(body: Send):
         if len(conversation["messages"]) >= 100:
             raise HTTPException(409, "This conversation is full. Start a new conversation.")
         store.put_json("assistant-request", body.request_id, {"fingerprint": fingerprint, "state": "pending"})
-        conversation["messages"].append({"id": body.request_id, "role": "user", "content": body.message, "created_at": time.time()})
+        conversation["messages"].append({"id": body.request_id, "role": "user", "content": body.message, "image_count": len(body.images), "created_at": time.time()})
         def save():
             conversation["updated_at"] = time.time()
             store.put_json("conversation", value, conversation)
@@ -188,7 +195,7 @@ async def send(body: Send):
         inspected = []
         last_task = store.get(conversation['last_task_id']) if conversation.get('last_task_id') else None
         retry = bool(last_task and last_task['status'] in {'failed','paused'} and re.fullmatch(r'(?:try again|retry|resume|continue|kontynuuj|wznow|wznów|sprobuj jeszcze raz|spróbuj jeszcze raz)[.! ]*', body.message.casefold().strip()))
-        if greeting(body.message):
+        if greeting(body.message) and not body.images:
             action = {"action": "reply", "text": "Cześć! W czym mogę pomóc?" if polish else local_reply()["content"]}
         elif confirmed:
             action = approval if isinstance(approval, dict) else {"action": "execute", "task": approval}
@@ -218,7 +225,7 @@ async def send(body: Send):
                     state = {"status": last_run["status"], "verified_success": report.get("success"), "reason": report.get("reason"), "changed_files": report.get("files_created", []) + report.get("files_modified", [])}
                     messages.append(EngineMessage(role=Role.SYSTEM, content="Current execution state reported by the server: " + json.dumps(state)))
                 for item in conversation["messages"][-12:]:
-                    messages.append(EngineMessage(role=Role(item["role"]), content=item["content"][:6000]))
+                    messages.append(EngineMessage(role=Role(item["role"]), content=item["content"][:6000], images=body.images if item["id"] == body.request_id else None))
                 cost_id = body.request_id
                 def persist(event):
                     store.put_json("chat-cost", cost_id, {"id": cost_id, "conversation_id": value, **event})
@@ -301,7 +308,7 @@ async def send(body: Send):
                     if not prior or prior['status'] not in {'failed', 'cancelled'}:
                         break
                     parent_id = prior.get('parent_id')
-                created = create_task(Task(project_id=conversation.get("project_id"), runtime=runtime, operation="verify" if kind == "verify" else "edit", task=instruction, parent_id=parent_id, model_id=body.model_id, model_budget_usd=float(remaining)))
+                created = create_task(Task(images=body.images, project_id=conversation.get("project_id"), runtime=runtime, operation="verify" if kind == "verify" else "edit", task=instruction, parent_id=parent_id, model_id=body.model_id, model_budget_usd=float(remaining)))
                 if route_cost is not None:
                     store.fields(created['id'], request_quota_reserved=True)
                 conversation["last_task_id"] = created["id"]
