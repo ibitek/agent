@@ -314,7 +314,7 @@ async def execute_task(value: str, request: Request):
     claimed = store.call("EVAL", "if redis.call('GET',KEYS[2])==ARGV[1] and redis.call('HGET',KEYS[1],'status')=='\"queued\"' then redis.call('HSET',KEYS[1],'status','\"running\"');redis.call('EXPIRE',KEYS[2],ARGV[2]);return 1 else return 0 end", 2, store.key("task", value), store.key("project-lock"), value, JOB_SECONDS + 30)
     if not claimed:
         return {"id": value, "status": task_row(store, value)["status"]}
-    if not store.allow_paid_request():
+    if not item.get("request_quota_reserved") and not store.allow_paid_request():
         store.fields(value, status="failed", error="The daily request limit has been reached.")
         store.event(value, {"event": "task_error", "error": "The daily limit has been reached."})
         store.release(value)
@@ -423,5 +423,6 @@ def preview(value: str):
     if content is None:
         content = store.get_json("files", value)
     if content is None:
-        return {"available": False, "reason": "This run does not have preview files yet."}
+        reason = item.get('error') or (item.get('report') or {}).get('reason')
+        return {"available": False, "reason": ("This run stopped before a preview was saved: " + reason) if reason else "No preview has been saved yet. Check Activity for the current progress."}
     return build_preview(content)

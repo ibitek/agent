@@ -111,4 +111,5 @@ class Store:
     def allow_paid_request(self):
         day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         limit = min(max(int(os.environ.get("SYNVIO_DAILY_REQUEST_LIMIT", "10")), 1), 100)
-        return self.meter(f"paid:{day}", limit, 2 * 24 * 60 * 60)
+        # Fresh counter version excludes the old routing+worker double charges.
+        return self.meter(f"paid-v2:{day}", limit, 2 * 24 * 60 * 60)

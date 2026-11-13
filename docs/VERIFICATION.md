@@ -190,7 +190,7 @@ assertions were updated without weakening host-execution security assertions.
 
 ## Confirmation repair and live static-site builder (2026-11-13)
 
-Short approvals including “to dawaj” and “yeah” consume the stored pending action
+Short approvals including ï¿½to dawajï¿½ and ï¿½yeahï¿½ consume the stored pending action
 without another routing model call. A bare approval without a pending action
 receives a free clarification. A visible Start this work button submits the same
 confirmation path. Conditional or negative messages never match the approval set.
@@ -213,3 +213,27 @@ including two additional runtime/confirmation regressions. Five UI polling tests
 passed; Vite production build passed. Python imports/tests are separate from
 user-project test execution. All model responses were mocked: no paid model call,
 remote sandbox allocation or real generated-site browser test was performed.
+
+
+## Production failure follow-up (2026-11-13)
+
+Observed the authenticated production Activity panel: the reported run stopped
+before implementation because the ten-request daily counter charged routing and
+execution separately. The run title also contained a model schema placeholder.
+
+A server-only reservation now shares the daily allowance between routing and
+its worker. The counter version excludes historical double counting; the daily
+cap, per-run model budget and authentication remain enforced. Original user
+requirements, rather than the model paraphrase, are passed to implementation.
+Explicit retry reuses the failed request without a routing call and skips failed
+ancestors with no file snapshot. It never automatically starts a paid retry.
+
+Model replies now follow the latest substantive user message language; short
+confirmations retain context. UI remains English. Work answers and actual errors
+are displayed directly under the work card. Missing previews explain failures.
+The static builder also supports removing project files; prior snapshots remain.
+
+Validation: 242 offline tests passed before the final retry regression; the
+updated 70-test cloud/intent/static-builder subset and 5 UI tests passed. Frontend
+production build passed. Real production Activity was inspected read-only; no
+paid model request or remote sandbox was started by the agent.

@@ -16,8 +16,8 @@ from .store import Store, ready
 
 router = APIRouter(prefix="/api")
 SYSTEM = """You are SYNVIO, a practical AI assistant and coding agent. Default to
-English, even if the user writes another language; switch only when explicitly
-asked. Understand intent from the conversation. Return exactly one JSON object:
+the language of the latest substantive user message. Short confirmations inherit
+the conversation language. The interface is English, but responses follow the user. Understand intent from the conversation. Return exactly one JSON object:
 {"action":"reply","text":"your useful answer"}
 {"action":"list"}
 {"action":"read","path":"relative/file"}
@@ -51,6 +51,16 @@ def confirmation(message):
 
 def web_request(task):
     return bool(re.search(r"\b(?:website|webpage|web page|landing page|html|css|javascript|static page|stron\w*)\b", task.casefold()))
+
+
+def polish_context(messages):
+    """Local status wording only; the model determines the language of full replies."""
+    for item in reversed(messages):
+        if item['role'] != 'user' or confirmation(item['content']):
+            continue
+        text = item['content'].casefold()
+        return bool(re.search(r'[ąćęłńóśźż]|\b(?:siema\w*|czesc|zrob|usun|sprobuj|moze|dobra|strone|stworz|po polsku|sprawdz|dodaj|napraw)\b', text))
+    return False
 
 
 def wants_changes(message):
@@ -133,13 +143,19 @@ async def send(body: Send):
             store.call("ZADD", store.key("conversations"), conversation["updated_at"], value)
         save()
         approval = conversation.get("pending_action")
+        polish = polish_context(conversation['messages'])
         confirmed = bool(approval and confirmation(body.message))
         route_cost = None
         inspected = []
+        last_task = store.get(conversation['last_task_id']) if conversation.get('last_task_id') else None
+        retry = bool(last_task and last_task['status'] == 'failed' and re.fullmatch(r'(?:try again|retry|sprobuj jeszcze raz|spróbuj jeszcze raz)[.! ]*', body.message.casefold().strip()))
         if greeting(body.message):
-            action = {"action": "reply", "text": local_reply()["content"]}
+            action = {"action": "reply", "text": "Cześć! W czym mogę pomóc?" if polish else local_reply()["content"]}
         elif confirmed:
             action = approval if isinstance(approval, dict) else {"action": "execute", "task": approval}
+        elif retry:
+            original = next((item['content'] for item in reversed(conversation['messages'][:-1]) if item['role'] == 'user' and not confirmation(item['content']) and not re.match(r'^(?:sprobuj|spróbuj|retry|try again)', item['content'], re.I)), last_task['task'])
+            action = {'action': 'verify' if last_task.get('operation') == 'verify' else 'execute', 'task': original}
         elif confirmation(body.message):
             action = {"action": "reply", "text": "What would you like me to work on? Tell me the goal and I'll get started."}
         else:
@@ -151,7 +167,7 @@ async def send(body: Send):
                 from openjarvis.core.types import Message as EngineMessage, Role
                 from synvio.config import SYNVIOConfig
                 from synvio.runtime import engine_for
-                messages = [EngineMessage(role=Role.SYSTEM, content=SYSTEM)]
+                messages = [EngineMessage(role=Role.SYSTEM, content=SYSTEM + '\nExecute requests must contain the actual user requirements, never copy schema placeholder descriptions.')]
                 last_run = store.get(conversation["last_task_id"]) if conversation.get("last_task_id") else None
                 if last_run:
                     report = last_run.get("report") or {}
@@ -200,16 +216,16 @@ async def send(body: Send):
         if kind in {"execute", "verify"}:
             conversation.pop("pending_action", None)
             authorized = wants_verification(body.message) if kind == "verify" else wants_changes(body.message)
-            runtime = "web" if kind == "execute" and web_request(action["task"]) else "python"
+            runtime = "web" if kind == "execute" and (web_request(action["task"]) or web_request(body.message)) else "python"
             previous = store.get(conversation["last_task_id"]) if conversation.get("last_task_id") else None
             if kind == "execute" and previous and previous.get("runtime") == "web":
                 runtime = "web"
-            if not confirmed and not authorized:
-                conversation["pending_action"] = action
+            if not confirmed and not retry and not authorized:
+                conversation["pending_action"] = {**action, "task": action["task"] + "\nOriginal user request: " + body.message}
                 text = "Would you like me to run the existing tests without changing files?" if kind == "verify" else "Would you like me to implement these changes? I can inspect and explain the project without changing files, or proceed once you confirm."
                 kind = "clarification"
             elif not tasks_ready(runtime):
-                conversation["pending_action"] = action
+                conversation["pending_action"] = {**action, "task": action["task"] + "\nOriginal user request: " + body.message}
                 text = "I can make those changes, but the execution environment is not ready yet. Use Prepare environment below, then send your request again. No implementation run has started."
                 kind = "setup_required"
             else:
@@ -217,10 +233,21 @@ async def send(body: Send):
                 remaining = Decimal(str(body.model_budget_usd)) - spent
                 if remaining <= 0:
                     raise HTTPException(409, "The model budget was used while understanding your request. No implementation run was started.")
-                created = create_task(Task(runtime=runtime, operation="verify" if kind == "verify" else "edit", task=action["task"], parent_id=conversation.get("last_task_id"), model_id=body.model_id, model_budget_usd=float(remaining)))
+                instruction = action['task'] if confirmed or retry else body.message
+                parent_id = conversation.get('last_task_id')
+                seen = set()
+                while parent_id and store.get_json('files', parent_id) is None and parent_id not in seen:
+                    seen.add(parent_id)
+                    prior = store.get(parent_id)
+                    if not prior or prior['status'] not in {'failed', 'cancelled'}:
+                        break
+                    parent_id = prior.get('parent_id')
+                created = create_task(Task(runtime=runtime, operation="verify" if kind == "verify" else "edit", task=instruction, parent_id=parent_id, model_id=body.model_id, model_budget_usd=float(remaining)))
+                if route_cost is not None:
+                    store.fields(created['id'], request_quota_reserved=True)
                 conversation["last_task_id"] = created["id"]
                 conversation.pop("pending_action", None)
-                text = "I'm running the existing checks without changing your project files." if kind == "verify" else "I'm working on your request. I'll show the actual changes, checks and preview here as they become available."
+                text = ("Uruchamiam istniejące testy bez zmieniania plików." if kind == 'verify' else "Pracuję nad Twoim poleceniem. Tutaj pokażę rzeczywiste zmiany, wyniki sprawdzeń i podgląd.") if polish else ("I'm running the existing checks without changing your project files." if kind == "verify" else "I'm working on your request. I'll show the actual changes, checks and preview here as they become available.")
         elif kind == "reply":
             conversation.pop("pending_action", None)
         message = {"id": body.request_id + "-reply", "role": "assistant", "content": text, "kind": kind,

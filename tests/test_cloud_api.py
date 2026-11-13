@@ -368,7 +368,7 @@ def test_unified_greeting_is_free_english_durable_and_idempotent(client, monkeyp
     payload = {"request_id": "b" * 32, "message": "siema"}
     response = client.post("/api/assistant", json=payload)
     assert response.status_code == 200
-    assert response.json()["message"]["content"].startswith("Hi!")
+    assert response.json()["message"]["content"].startswith("Cze")
     assert response.json()["task"] is None
     assert response.json()["message"]["local_response"]
     assert client.post("/api/assistant", json=payload).json() == response.json()
@@ -507,3 +507,48 @@ def test_static_worker_uses_real_file_loop_without_creating_sandbox(client, monk
     assert result['report']['verification_level'] == 'static'
     assert result['report']['tests'] == []
     assert store.get_json('files', value)['index.html'] == '<h1>Website</h1>'
+
+
+def test_routing_and_execution_share_one_daily_allowance(client, monkeypatch):
+    login(client)
+    monkeypatch.setenv('SYNVIO_DAILY_REQUEST_LIMIT', '1')
+    calls = assistant_engine(monkeypatch, [{'action': 'execute', 'task': "clear implementation request preserving the user's requirements"}])
+    async def run(store, value, oidc_token=None):
+        store.fields(value, status='completed')
+        store.release(value)
+    monkeypatch.setattr(cloud, 'run_worker', run)
+    original = 'Zrob nowoczesna strone SYNVIO z dwiema podstronami'
+    response = client.post('/api/assistant', json={'request_id':'7'*32, 'message':original})
+    assert response.status_code == 200
+    value = response.json()['task']['id']
+    assert cloud.get_store().get(value)['task'] == original
+    assert cloud.get_store().get(value)['runtime'] == 'web'
+    assert client.post(f'/api/tasks/{value}/run').json()['status'] == 'completed'
+    assert len(calls) == 1
+    assert not cloud.get_store().allow_paid_request()
+
+
+def test_preview_explains_failure_before_first_write(client):
+    login(client)
+    value = create(client).json()['id']
+    store = cloud.get_store()
+    store.fields(value, status='failed', error='The daily request limit has been reached.')
+    preview = client.get(f'/api/tasks/{value}/preview').json()
+    assert not preview['available']
+    assert 'daily request limit' in preview['reason']
+
+def test_explicit_retry_reuses_original_request_and_skips_empty_failed_snapshot(client, monkeypatch):
+    login(client)
+    original = 'Build a modern SYNVIO website with two pages'
+    failed = client.post('/api/tasks', json={'task': original, 'runtime': 'web'}).json()['id']
+    store = cloud.get_store()
+    store.fields(failed, status='failed', error='Daily limit')
+    store.release(failed)
+    conversation = '6'*32
+    store.put_json('conversation', conversation, {'id': conversation, 'last_task_id': failed, 'messages': [{'id':'old', 'role':'user', 'content':original}]})
+    calls = assistant_engine(monkeypatch, [])
+    result = client.post('/api/assistant', json={'request_id':'5'*32,'conversation_id':conversation,'message':'sprobuj jeszcze raz'})
+    assert result.status_code == 200
+    created = store.get(result.json()['task']['id'])
+    assert created['task'] == original and created['parent_id'] is None
+    assert created['runtime'] == 'web' and calls == []
