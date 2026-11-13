@@ -44,3 +44,11 @@ def test_gateway_does_not_enable_unhandled_tier_or_cache_write_rates():
     assert 'anthropic/claude-sonnet-4.5' not in SUPPORTED
     assert 'deepseek/deepseek-v3.2' not in SUPPORTED
     assert {'google/gemini-2.5-flash','mistral/codestral','alibaba/qwen3-coder'} <= set(SUPPORTED)
+
+
+def test_existing_vercel_oidc_can_connect_without_new_gateway_key(monkeypatch):
+    from synvio.cloud.gateway import connected, token
+    monkeypatch.delenv('AI_GATEWAY_API_KEY',raising=False)
+    monkeypatch.setenv('SYNVIO_ENABLE_GATEWAY','1')
+    monkeypatch.setenv('VERCEL_OIDC_TOKEN','test-oidc-not-a-real-token')
+    assert connected() and token()=='test-oidc-not-a-real-token'

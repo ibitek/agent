@@ -352,9 +352,10 @@ was added. Owner-approved future bonus tiers: USD5 +2%, 12.50 +5%, 25 +10%,
 
 A pinned public AI Gateway catalog includes Google, Mistral, Qwen, Anthropic and
 DeepSeek. The optional backend adapter supports only reviewed flat-rate models
-without unhandled cache-write/tier/provider-variable charges. It requires both
-SYNVIO_ENABLE_GATEWAY=1 and AI_GATEWAY_API_KEY; neither is enabled/provisioned by
-this change. It has a fixed HTTPS endpoint, existing budget preflight, no HTTP
+without unhandled cache-write/tier/provider-variable charges. It requires SYNVIO_ENABLE_GATEWAY=1 plus an existing Vercel OIDC identity
+(or AI_GATEWAY_API_KEY for external environments). The owner-requested Production
+opt-in is enabled; no new secret was created. Gateway credits/account verification
+may still be required. No paid Gateway inference was used to check readiness. It has a fixed HTTPS endpoint, existing budget preflight, no HTTP
 retries and normalized usage checks. Anthropic/tiered entries remain unavailable
 until their usage accounting is implemented. OpenJarvis remains untouched.
 Catalog fetched from https://ai-gateway.vercel.sh/v1/models on 2026-11-13; API
@@ -371,3 +372,9 @@ price separation, gateway opt-in/budget enforcement, unsupported rate exclusion,
 wallet inactivity and Vercel query collision. Loopback browser fixture verified
 gray themes, wallet/bonus display, model selection without inference, syntax
 colors and diagnostics expansion. No real model, cloud VM or payment was used.
+
+
+After owner sign-in, production verification confirmed index.html and src/main.jsx
+read successfully through the new file query parameter, syntax highlighting is
+visible, and the bottom Terminal pane displays the previously recorded real npm
+installation and Vite build output. This verification started no model or VM.

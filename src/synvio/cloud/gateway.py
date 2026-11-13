@@ -11,8 +11,21 @@ CATALOG = json.loads(Path(__file__).with_name('gateway_catalog.json').read_text(
 SUPPORTED = {item['id']:item for item in CATALOG['models'] if 'response_format' in (item.get('supported_parameters') or []) and not any(item['pricing'].get(key) for key in ('input_tiers','output_tiers','input_cache_write','varies_by_provider'))}
 
 
+def token():
+    value = os.environ.get('AI_GATEWAY_API_KEY') or os.environ.get('VERCEL_OIDC_TOKEN')
+    if value:
+        return value.strip()
+    if os.environ.get('VERCEL') == '1':
+        try:
+            from vercel.oidc import get_vercel_oidc_token_sync
+            return get_vercel_oidc_token_sync()
+        except Exception:
+            return None
+    return None
+
+
 def connected():
-    return os.environ.get('SYNVIO_ENABLE_GATEWAY') == '1' and bool(os.environ.get('AI_GATEWAY_API_KEY','').strip())
+    return os.environ.get('SYNVIO_ENABLE_GATEWAY') == '1' and bool(token())
 
 
 def rates():
@@ -29,7 +42,11 @@ class GatewayEngine:
         if response_format:
             payload['response_format'] = response_format
         response = httpx.post('https://ai-gateway.vercel.sh/v1/chat/completions', json=payload,
-            headers={'Authorization':'Bearer '+os.environ['AI_GATEWAY_API_KEY']}, timeout=60)
+            headers={'Authorization':'Bearer '+token()}, timeout=60)
+        if response.status_code == 402:
+            raise ValueError('AI Gateway requires account verification or credits in Vercel. The request was not retried automatically.')
+        if response.status_code in {401,403}:
+            raise ValueError('AI Gateway authorization failed. Check the project connection in Vercel. No automatic retry was made.')
         response.raise_for_status()
         data = response.json()
         content = data['choices'][0]['message'].get('content')
