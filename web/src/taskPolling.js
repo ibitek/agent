@@ -1,4 +1,4 @@
-const TERMINAL = new Set(['completed', 'failed', 'cancelled'])
+const TERMINAL = new Set(['completed', 'failed', 'cancelled', 'paused'])
 const FINISHED = new Set(['task_finished', 'task_error', 'task_cancelled'])
 
 export function mergeTasks(current, incoming) {

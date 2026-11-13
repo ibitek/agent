@@ -21,65 +21,85 @@ APP_SYSTEM = SYSTEM.replace('Build the requested static website using plain HTML
     'Build the requested React application using Vite. Save the complete source project.') .replace(
     'Use root index.html. No packages, servers, external scripts, imports or remote assets.',
     'Use root package.json with a build script set to vite build, root index.html and src/main.jsx. '
-    'Use react and react-dom 19.1.1 and vite 6.4.6. Import React in JSX files. '
+    'For new projects use react and react-dom 19.1.1 and vite 6.4.6. Preserve existing project dependencies unless a change is required by the request. Import React in JSX files. '
     'No remote assets, external APIs, secrets, backend services or browser storage requirements. '
-    'A separate owner-triggered Build preview compiles these files later. Do not claim you ran a build or tests.')
+    'The system compiles saved application source in a separate isolated build. Do not claim you ran a build or tests.')
+
+SOURCE_SYSTEM = SYSTEM.replace('Build the requested static website using plain HTML, CSS and JavaScript.', 'Edit the existing source repository according to the user request. Preserve its framework, language and dependencies.').replace('Use root index.html. No packages, servers, external scripts, imports or remote assets.', 'Do not convert the project to another framework. Read its existing manifests and relevant source first. You can edit text source and config files only; you cannot execute commands. Explicitly state that compilation and runtime tests were not run.')
 
 
 def build(store, task, baseline, engine):
     from openjarvis.core.types import Message, Role
     started = time.monotonic()
+    saved = task.get("resume_checkpoint") or {}
     files = dict(baseline)
     application = task.get('runtime') == 'app'
-    messages = [Message(role=Role.SYSTEM, content=APP_SYSTEM if application else SYSTEM), Message(role=Role.USER, content=prompt_for(task))]
-    changed = []
+    source_only = task.get('runtime') == 'source'
+    messages = [Message(role=Role.SYSTEM, content=SOURCE_SYSTEM if source_only else APP_SYSTEM if application else SYSTEM), Message(role=Role.USER, content=prompt_for(task))]
+    if saved.get("messages"):
+        messages = [Message(role=Role(item["role"]),content=item["content"]) for item in saved["messages"]]
+    changed = list(saved.get("changed", []))
+    pending = saved.get("pending_action")
+    def checkpoint(pending_action=None):
+        if hasattr(store, "checkpoint"):
+            store.checkpoint(task["id"], {"version":1,"messages":[{"role":str(m.role.value),"content":m.content} for m in messages],"changed":changed,"pending_action":pending_action}, files)
     answer = "The turn limit was reached. Saved changes remain available for inspection."
     finished = False
     for step in range(10):
         store.event(task['id'], {"event": "model_thinking", "step": step + 1})
-        result = engine.generate(messages, model=task['model'], max_tokens=6000, temperature=0.2, response_format={"type": "json_object"})
-        action = json.loads(result.get('content', ''))
+        if pending is not None:
+            action, pending = pending, None
+        else:
+            result = engine.generate(messages, model=task['model'], max_tokens=6000, temperature=0.2, response_format={"type": "json_object"})
+            action = json.loads(result.get('content', ''))
         if not isinstance(action, dict):
             raise ValueError('Invalid website action.')
         kind = action.get('action')
+        if kind in {'read','write','delete'}:
+            safe_path(action.get('path'))
         if kind == 'finish':
             answer = str(action.get('text', 'Files saved.'))[:4000]
             finished = True
+            checkpoint(action)
             break
         if kind == 'list':
+            checkpoint(action)
             output = json.dumps(sorted(files))
         elif kind in {'read', 'write', 'delete'}:
             path = safe_path(action.get('path'))
             if kind == 'delete':
+                checkpoint(action)
                 files.pop(path, None)
                 if path not in changed:
                     changed.append(path)
-                store.put_json('files', task['id'], files)
-                store.put_json('preview-files', task['id'], files)
                 store.event(task['id'], {"event": "tool_call", "tool": "dev_delete_file", "path": path, "success": True})
                 store.event(task['id'], {"event": "preview_updated", "path": path})
                 output = 'Removed ' + path + '. Prior snapshot remains available.'
             elif kind == 'write':
                 allowed = {'.html', '.css', '.js', '.svg', '.json', '.md', '.txt'} | ({'.jsx','.tsx','.ts','.mjs'} if application else set())
-                if PurePosixPath(path).suffix.lower() not in allowed:
+                if not source_only and PurePosixPath(path).suffix.lower() not in allowed:
                     raise ValueError('Static websites only support text web assets.')
                 candidate = validate_files({**files, path: action.get('content')})
+                checkpoint(action)
                 files = candidate
                 if path not in changed:
                     changed.append(path)
-                store.put_json('files', task['id'], files)
-                store.put_json('preview-files', task['id'], files)
                 store.event(task['id'], {"event": "tool_call", "tool": "dev_write_file", "path": path, "success": True})
                 store.event(task['id'], {"event": "preview_updated", "path": path})
                 output = 'Saved ' + path
             else:
+                checkpoint(action)
                 output = files.get(path, 'File not found.')[:16000]
                 store.event(task['id'], {"event": "tool_call", "tool": "dev_read_file", "path": path, "success": path in files})
         else:
             raise ValueError('Unsupported website action. No commands were executed.')
         messages.extend([Message(role=Role.ASSISTANT, content=json.dumps(action)), Message(role=Role.USER, content='Untrusted tool result:\n' + output)])
+        checkpoint()
     preview = build_preview(files)
     success = finished and bool(changed) and preview['available']
+    if source_only:
+        success = finished
+        preview = {'reason':'source_files_saved'}
     if application:
         from .app_build import validate_app
         try:
@@ -89,18 +109,20 @@ def build(store, task, baseline, engine):
         except ValueError as exc:
             success = False
             preview = {'reason':str(exc)}
-    store.put_json('files', task['id'], files)
-    store.put_json('project', 'default', files, expiry=0)
-    store.put_json('thread-head', task.get('thread_id', task['id']), task['id'])
-    report = {"task": task['task'], "success": success, "verification_level": 'files_only' if application else "static", "browser_verified": False,
-              "reason": 'application_source_ready' if success and application else 'static_preview_ready' if success else preview.get('reason', 'Incomplete website run'),
+    report = {"task": task['task'], "success": success, "verification_level": 'files_only' if application or source_only else "static", "browser_verified": False,
+              "reason": 'source_files_saved' if source_only and success else 'application_source_ready' if success and application else 'static_preview_ready' if success else preview.get('reason', 'Incomplete website run'),
               "files_created": [path for path in changed if path not in baseline and path in files],
               "files_modified": [path for path in changed if path in baseline and path in files],
               "files_deleted": [path for path in changed if path in baseline and path not in files], "tests": [],
               "steps_used": step + 1, "tool_calls": step if finished else step + 1, "attempts": 1,
               "duration_seconds": time.monotonic() - started, "cost_record": engine.summary(),
-              "attempt_details": [{"final_answer": answer + ('\n\nSource files saved. Compilation and browser tests were not run.' if application else '\n\nStatic preview only. Browser interactions and automated tests were not run.')}]}
-    status = 'completed' if success else 'failed'
-    store.fields(task['id'], status=status, report=report, updated_at=time.time())
+              "attempt_details": [{"final_answer": answer + ('\n\nSource files saved. Compilation and browser tests were not run.' if application or source_only else '\n\nStatic preview only. Browser interactions and automated tests were not run.')}]}
+    status = 'completed' if success else 'paused'
+    if hasattr(store,'finish'):
+        store.finish(task,files,status,report)
+    else:
+        store.put_json('files',task['id'],files)
+        store.put_json('preview-files',task['id'],files)
+        store.fields(task['id'],status=status,report=report,updated_at=time.time())
     store.event(task['id'], {"event": "task_finished", "status": status, "success": success})
     return 0

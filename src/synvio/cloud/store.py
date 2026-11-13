@@ -101,8 +101,56 @@ class Store:
         raw = self.call("GET", self.key(kind, task_id))
         return json.loads(raw) if raw else default
 
-    def project(self):
-        return self.get_json("project", "default", {"README.md": "# New SYNVIO project\n\nBuild your application and its tests in this project.\n"})
+    def project(self, project_id="default"):
+        return self.get_json("project", project_id, {"README.md": "# New SYNVIO project\n\nBuild your application and its tests in this project.\n"})
+
+    def write_cost(self, task_id, event):
+        calls=event.get('calls') or []
+        reserved=bool(calls and calls[-1].get('state')=='reserved')
+        saved=self.call('EVAL', """
+if ARGV[1]=='1' then
+ local status=redis.call('HGET',KEYS[1],'status')
+ local deadline=redis.call('HGET',KEYS[1],'deadline')
+ if status~='"running"' or redis.call('GET',KEYS[2])~=ARGV[2] or (deadline and tonumber(deadline)<tonumber(ARGV[4])) then return 0 end
+end
+redis.call('HSET',KEYS[1],'cost_record',ARGV[3],'updated_at',ARGV[4])
+return 1
+""",2,self.key('task',task_id),self.key('project-lock'),'1' if reserved else '0',task_id,json.dumps(event),time.time())
+        if not saved: raise RuntimeError('This worker no longer owns the run. No new model call was sent.')
+        self.event(task_id,event)
+
+    def checkpoint(self, task_id, payload, files):
+        # Freeze a coherent file version and next action together. An expired or
+        # paused worker cannot overwrite a checkpoint after ownership is lost.
+        saved = self.call("EVAL", """
+local status=redis.call('HGET',KEYS[1],'status')
+local deadline=redis.call('HGET',KEYS[1],'deadline')
+if status~='"running"' or (deadline and tonumber(deadline)<tonumber(ARGV[4])) then return 0 end
+redis.call('SET',KEYS[2],ARGV[1],'EX',ARGV[3])
+redis.call('SET',KEYS[3],ARGV[2],'EX',ARGV[3])
+redis.call('SET',KEYS[4],ARGV[2],'EX',ARGV[3])
+return 1
+""", 4, self.key('task',task_id), self.key('checkpoint',task_id), self.key('files',task_id), self.key('preview-files',task_id), json.dumps(payload,ensure_ascii=False), json.dumps(files,ensure_ascii=False), RETENTION, time.time())
+        if not saved:
+            raise RuntimeError('Work paused: the worker no longer owns this run.')
+
+    def finish(self, task, files, status, report):
+        project_id=task.get('project_id') or 'default'
+        previous=self.get_json('project-meta',project_id) or {}
+        metadata={'id':project_id,'title':previous.get('title') or task.get('task','Project')[:80],'head':task['id'],'thread_id':task.get('thread_id',task['id']),'runtime':task.get('runtime','source'),'updated_at':time.time()}
+        saved=self.call('EVAL', """
+local status=redis.call('HGET',KEYS[1],'status')
+local deadline=redis.call('HGET',KEYS[1],'deadline')
+if (status~='"running"' and status~='"queued"') or redis.call('GET',KEYS[5])~=ARGV[1] or (deadline and tonumber(deadline)<tonumber(ARGV[5])) then return 0 end
+redis.call('SET',KEYS[2],ARGV[2],'EX',ARGV[6])
+redis.call('SET',KEYS[3],ARGV[2])
+redis.call('SET',KEYS[4],ARGV[3],'EX',ARGV[6])
+redis.call('HSET',KEYS[1],'status',ARGV[4],'report',ARGV[7],'updated_at',ARGV[5],'error','null')
+redis.call('SET',KEYS[6],ARGV[8])
+redis.call('ZADD',KEYS[7],ARGV[5],ARGV[9])
+return 1
+""",7,self.key('task',task['id']),self.key('files',task['id']),self.key('project',task.get('project_id') or 'default'),self.key('thread-head',task.get('thread_id',task['id'])),self.key('project-lock'),self.key('project-meta',project_id),self.key('projects'),task['id'],json.dumps(files,ensure_ascii=False),json.dumps(task['id']),json.dumps(status),time.time(),RETENTION,json.dumps(report,ensure_ascii=False),json.dumps(metadata,ensure_ascii=False),project_id)
+        if not saved: raise RuntimeError('This run no longer owns the project. Its published revision was not changed.')
 
     def meter(self, bucket, limit, seconds):
         count = self.call("EVAL", "local n=redis.call('INCR',KEYS[1]);if n==1 then redis.call('EXPIRE',KEYS[1],ARGV[1]) end;return n", 1, self.key("quota", bucket), seconds)

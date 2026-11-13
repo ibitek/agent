@@ -93,6 +93,9 @@ def validate_files(files: dict[str, str]) -> dict[str, str]:
         if not isinstance(content, str) or len(content.encode()) > MAX_FILE_BYTES:
             raise ValueError("The file exceeds the 256 KiB limit.")
         result[safe_path(name)] = content
+    for name in result:
+        if any(str(parent) in result for parent in PurePosixPath(name).parents if str(parent) != "."):
+            raise ValueError("A project path cannot be both a file and a folder.")
     if len(json.dumps(result).encode()) > MAX_PROJECT_BYTES:
         raise ValueError("The project exceeds the 2 MiB limit.")
     return result
@@ -101,13 +104,13 @@ def validate_files(files: dict[str, str]) -> dict[str, str]:
 def public_error(exc: Exception) -> str:
     message = f"{type(exc).__name__}: {exc}"
     for name, value in os.environ.items():
-        if value and ("TOKEN" in name or "SECRET" in name or "PASSWORD" in name or "API_KEY" in name):
+        if value and ("TOKEN" in name or "SECRET" in name or "PASSWORD" in name or "API_KEY" in name or "PRIVATE_KEY" in name):
             message = message.replace(value, "[redacted]")
     return message[:2000]
 
 
 def redact_data(value):
-    secrets = [secret for name, secret in os.environ.items() if secret and any(part in name for part in ("TOKEN", "SECRET", "PASSWORD", "API_KEY"))]
+    secrets = [secret for name, secret in os.environ.items() if secret and any(part in name for part in ("TOKEN", "SECRET", "PASSWORD", "API_KEY", "PRIVATE_KEY"))]
 
     def clean(item):
         if isinstance(item, str):

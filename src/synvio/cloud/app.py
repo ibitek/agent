@@ -27,6 +27,10 @@ from .preview import build_preview
 from .editor import router as editor_router
 from .assistant import router as assistant_router
 from .browser_sessions import router as browser_router
+from .recovery import router as recovery_router
+from .project_files import router as project_files_router
+from .github import router as github_router
+from .projects import router as projects_router
 from .common import JOB_SECONDS, PROJECT, estimate, greeting, limits, local_reply, model_catalog, public_error, resolve_model, safe_path
 from .store import StorageUnavailable, Store, ready as storage_ready
 from .setup import prepare as prepare_sandbox, saved_snapshot
@@ -39,6 +43,10 @@ app = FastAPI(title="SYNVIO Agents", docs_url=None, redoc_url=None, openapi_url=
 app.include_router(editor_router)
 app.include_router(assistant_router)
 app.include_router(browser_router)
+app.include_router(recovery_router)
+app.include_router(project_files_router)
+app.include_router(github_router)
+app.include_router(projects_router)
 
 
 class Login(BaseModel):
@@ -59,7 +67,8 @@ class Chat(BaseModel):
 
 
 class Task(BaseModel):
-    runtime: Literal["python", "web", "app"] = "python"
+    project_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
+    runtime: Literal["python", "web", "app", "source"] = "python"
     operation: Literal["edit", "verify"] = "edit"
     parent_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
     model_budget_usd: float = Field(default=0.10, gt=0, le=1, allow_inf_nan=False)
@@ -126,7 +135,7 @@ def logout(request: Request):
 
 def tasks_ready(runtime="python"):
     enabled = storage_ready() and os.environ.get("SYNVIO_ENABLE_TASKS") == "1"
-    return enabled and (runtime in {"web", "app"} or bool(saved_snapshot(get_store())))
+    return enabled and (runtime in {"web", "app", "source"} or bool(saved_snapshot(get_store())))
 
 
 @app.get("/api/health")
@@ -241,7 +250,7 @@ def task_row(store, value):
     if not item:
         raise HTTPException(404, "Run not found.")
     if item["status"] in {"queued", "running"} and time.time() > item["deadline"]:
-        if store.transition(value, item["status"], "failed"):
+        if store.transition(value, item["status"], "paused"):
             store.fields(value, error="The run timed out or its request was interrupted. Paid work was not retried automatically.")
             store.event(value, {"event": "task_error", "error": "The run timed out."})
             store.release(value)
@@ -272,7 +281,7 @@ def create_task(body: Task):
     now = time.time()
     value = uuid.uuid4().hex
     item = {"id": value, "model_budget_usd": body.model_budget_usd, "task": body.task, "workspace": PROJECT, "model": model, "model_id": body.model_id, "status": "queued", "created_at": now, "updated_at": now, "deadline": now + JOB_SECONDS + 60, "report": None, "error": None}
-    item.update(runtime=body.runtime, operation=body.operation, parent_id=body.parent_id, thread_id=parent.get("thread_id", parent["id"]) if parent else value,
+    item.update(project_id=parent.get("project_id") if parent else body.project_id, runtime=body.runtime, operation=body.operation, parent_id=body.parent_id, thread_id=parent.get("thread_id", parent["id"]) if parent else value,
                 followup_context=context_for(store, parent) if parent else [])
     if not store.create(item):
         raise HTTPException(429, "This project already has an active run. Wait for it to finish.")
@@ -284,7 +293,18 @@ def create_task(body: Task):
     return {"id": value, "status": "queued", "cancellation": "queued_tasks_only", "run_required": True}
 
 
+def dispatch(work):
+    if os.environ.get("VERCEL") == "1":
+        from vercel.cache.context import get_context
+        from vercel.functions import wait_until
+        if get_context().wait_until is not None:
+            wait_until(work)
+            return True
+    return False
+
+
 async def run_worker(store, value, oidc_token=None):
+    started = time.monotonic()
     # Only the known core worker runs locally. Model-authored code runs in remote microVMs.
     allowed = {"PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "OPENAI_API_KEY", "AI_GATEWAY_API_KEY", "SYNVIO_ENABLE_GATEWAY", "UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN", "KV_REST_API_URL", "KV_REST_API_TOKEN", "SYNVIO_SANDBOX_SNAPSHOT", "VERCEL_TOKEN", "VERCEL_TEAM_ID", "VERCEL_PROJECT_ID", "VERCEL_REGION"}
     env = {key: value for key, value in os.environ.items() if key in allowed}
@@ -309,8 +329,13 @@ async def run_worker(store, value, oidc_token=None):
         final = store.get(value)
         if final and final["status"] == "running":
             raise RuntimeError(f"The run exited without a report (code {code}).")
+        if os.environ.get("VERCEL") == "1" and final and final["status"] == "completed" and final.get("runtime") == "app" and final.get("operation") == "edit" and time.monotonic()-started < 100:
+            try:
+                await build_application_preview(value,BuildPreview(request_id=value))
+            except Exception as exc:
+                store.event(value,{"event":"application_build","phase":"deferred","error":public_error(exc)})
     except Exception as exc:
-        if store.transition(value, "running", "failed"):
+        if store.transition(value, "running", "paused"):
             store.fields(value, error=public_error(exc))
             store.event(value, {"event": "task_error", "error": public_error(exc)})
     finally:
@@ -330,12 +355,14 @@ async def execute_task(value: str, request: Request):
     if not claimed:
         return {"id": value, "status": task_row(store, value)["status"]}
     if not item.get("request_quota_reserved") and not store.allow_paid_request():
-        store.fields(value, status="failed", error="The daily request limit has been reached.")
+        store.fields(value, status="paused", error="The daily request limit has been reached.")
         store.event(value, {"event": "task_error", "error": "The daily limit has been reached."})
         store.release(value)
         raise HTTPException(429, "The daily limit has been reached. No model was called.")
     store.fields(value, updated_at=time.time(), deadline=time.time() + JOB_SECONDS + 20)
-    await run_worker(store, value, request.headers.get("x-vercel-oidc-token"))
+    work = run_worker(store, value, request.headers.get("x-vercel-oidc-token"))
+    if not dispatch(work):
+        await work
     return {"id": value, "status": task_row(store, value)["status"]}
 
 
@@ -488,6 +515,18 @@ async def build_application_preview(value: str, body: BuildPreview):
         if not store.meter('application-build:' + day, 4, 2*24*60*60):
             raise HTTPException(429, 'The four-build daily allowance has been reached. No VM was started.')
         store.put_json('application-build', value, {'status':'building','request_id':body.request_id,'deadline':time.time()+210})
-        return await build(store, value, body.request_id, files)
+        work = _finish_build(store,value,body.request_id,files,lock)
+        if dispatch(work):
+            return store.get_json("application-build",value)
+        return await work
     finally:
-        store.call('EVAL', "if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) else return 0 end", 1, lock, body.request_id)
+        if store.get_json('application-build',value,{}).get('status') != 'building':
+            store.call('EVAL', "if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) else return 0 end", 1, lock, body.request_id)
+
+
+async def _finish_build(store,value,request_id,files,lock):
+    from .app_build import build
+    try:
+        return await build(store,value,request_id,files)
+    finally:
+        store.call("EVAL", "if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) else return 0 end",1,lock,request_id)

@@ -405,3 +405,69 @@ still require a real owner-started cloud session. No paid model or VM was starte
 for this verification. Agent access to browser content is not wired into chat
 in this beta; the backend denies agent input actions and restricts navigation.
 Screenshots are snapshots every three seconds, not a continuous video stream.
+
+## Durable workspace, files and GitHub (2026-11-13)
+
+New conversations get an isolated project identity instead of reading the global
+legacy project. Explicit parent runs remain continuations. Planning is a server-
+enforced read-only boundary: an accidental execute action from routing cannot
+start a worker for a planning request. Framework detection recognizes Polish web
+requests. Imported non-Vite source repositories use source-only editing and are
+not accidentally passed to the Python test runner or converted to Vite.
+
+Web/app/source workers save message context, file snapshots and a pending action
+in Redis before applying an action and after each completed step. A resume creates
+an explicit continuation with its own additional bounded AI cap, restores that
+context and preserves completed writes. An already returned pending action can be
+replayed without another model call; full-file writes and deletes are idempotent.
+Python workers preserve files after successful writes, but restart reasoning from
+those files rather than serializing an arbitrary live interpreter/tool process.
+Unknown provider reservations require explicit acknowledgment before continuation.
+A paid request is never automatically replayed due to network failure.
+
+Timeouts/limits leave work Paused. Status reads do not restart it. Atomic checkpoint
+and publication guards prevent a stale worker publishing over a newer revision.
+Vercel wait_until keeps claimed workers and builds attached to the Function's
+lifetime after the HTTP response; it is still subject to the 300-second platform
+limit, not an unlimited durable queue. Reopening an authorized queued run can
+claim it once. If a claim is lost before execution, saved state remains resumable.
+Checkpoint files, logs and old revisions retain the existing 30-day retention;
+the latest scoped project persists without TTL. There is no paid wallet ledger.
+
+Application source edits start a Vite build automatically when sufficient Function
+time remains; opening/reopening Preview also starts a not-yet-started build for an
+edit revision. Importing alone does not auto-execute repository code. Existing
+building/ready state prevents duplicate starts. Failed/ambiguous builds require a
+manual retry; build output is separate from browser interaction verification.
+
+Code & files now contains nested folders, all editable project files, search,
+source tabs, syntax colors, line numbers, text editing, create/upload, rename/move,
+delete, download and revision history. Folder paths are created with files; empty
+folder records and binary editing are not implemented. Each mutation creates a
+new immutable revision, checks the source digest/head and serializes against active
+workers. Restore creates another revision, preserving intervening history. Unsaved
+edits block opening another file, changing project or starting an agent request.
+
+GitHub import/publish setup and its exact scope are documented in GITHUB_SETUP.md.
+Private credentials are not yet configured by this change. No private account is
+assumed connected, and no real repository publication was performed during tests.
+The remote browser beta remains manual; model screenshot vision and arbitrary
+application hosting are not claimed by these changes.
+
+Validation includes offline integration tests for checkpoint continuation without
+repeating a completed write, lost ownership, explicit unknown-cost acknowledgment,
+project isolation, source trees and reversible file edits, planning intent, GitHub
+import bounds/protected files and draft PR publication on a fake API. Local browser
+verification saved a source edit and restored its previous contents through History.
+No model, real cloud VM or GitHub write was used for this verification.
+
+A persistent Saved projects index now retains the latest scoped file version even
+when old run/chat records expire. Opening such a project reconstructs a source-only
+revision without a model call; expired reasoning/tool history is not fabricated.
+An active/paused continuation is preferred over an older completed index head.
+
+Final validation for this release: 313 Python tests passed through verify_offline.py,
+6 UI polling tests passed, and the production Vite build passed. Syntax validation
+is included in the offline suite; mocked integration tests do not establish that
+real cloud VMs, provider calls, GitHub App permissions or browser vision work.
+Those external checks were not run. No OpenJarvis source/install files were edited.

@@ -64,3 +64,11 @@ test('transient network error never fabricates a failed status', async () => {
   assert.equal(snapshots.length,0)
   assert.equal(queue.length,1)
 })
+
+test('paused work stops polling after its persisted interruption event', async () => {
+  const h=harness([{id:'task-a',status:'paused'},{items:[{sequence:1,event:'task_error',error:'Interrupted'}]}])
+  await h.tick()
+  assert.equal(h.snapshots[0].task.status,'paused')
+  assert.equal(h.snapshots[0].complete,true)
+  assert.equal(h.queue.length,0)
+})

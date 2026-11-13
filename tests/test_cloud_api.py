@@ -175,8 +175,8 @@ def test_expired_running_task_is_not_automatically_retried(client, monkeypatch):
     value = create(client).json()["id"]
     store = cloud.get_store()
     store.fields(value, status="running", deadline=time.time() - 1)
-    assert client.get(f"/api/tasks/{value}").json()["status"] == "failed"
-    assert client.post(f"/api/tasks/{value}/run").json()["status"] == "failed"
+    assert client.get(f"/api/tasks/{value}").json()["status"] == "paused"
+    assert client.post(f"/api/tasks/{value}/run").json()["status"] == "paused"
     assert client.get(f"/api/tasks/{value}/events").json()["items"][-1]["event"] == "task_error"
 
 
@@ -248,8 +248,8 @@ def test_worker_timeout_records_failure_without_retry(client, monkeypatch):
         raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
 
     monkeypatch.setattr(subprocess, "run", timeout)
-    assert client.post(f"/api/tasks/{value}/run").json()["status"] == "failed"
-    assert client.post(f"/api/tasks/{value}/run").json()["status"] == "failed"
+    assert client.post(f"/api/tasks/{value}/run").json()["status"] == "paused"
+    assert client.post(f"/api/tasks/{value}/run").json()["status"] == "paused"
     assert len(calls) == 1
     assert calls[0][0][-2:] == ["synvio.cloud.worker", value]
     assert calls[0][1]["timeout"] == 220
@@ -382,7 +382,7 @@ def test_unified_greeting_is_free_english_durable_and_idempotent(client, monkeyp
 def test_unified_inspection_reads_real_files_without_writes_or_tests(client, monkeypatch):
     login(client)
     store = cloud.get_store()
-    store.put_json("project", "default", {"calculator.py": "def add(a, b): return a + b"})
+    store.put_json("project", "c" * 32, {"calculator.py": "def add(a, b): return a + b"})
     calls = assistant_engine(monkeypatch, [{"action": "list"}, {"action": "read", "path": "calculator.py"}, {"action": "reply", "text": "The project adds two numbers."}])
     response = client.post("/api/assistant", json={"request_id": "c" * 32, "message": "Check what this project does without changing it"})
     assert response.status_code == 200
@@ -391,7 +391,7 @@ def test_unified_inspection_reads_real_files_without_writes_or_tests(client, mon
     assert len(calls) == 3
     assert "def add" in calls[-1][0][-1].content
     assert "Default to" in calls[0][0][0].content and "English" in calls[0][0][0].content
-    assert store.project() == {"calculator.py": "def add(a, b): return a + b"}
+    assert store.project("c" * 32) == {"calculator.py": "def add(a, b): return a + b"}
     assert store.history(50) == []
 
 
