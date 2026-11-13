@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 import time
+import unicodedata
 from decimal import Decimal
 
 from fastapi import APIRouter, HTTPException
@@ -40,6 +41,16 @@ class Send(BaseModel):
     message: str = Field(min_length=1, max_length=10000)
     model_id: str = "openai:low"
     model_budget_usd: float = Field(default=0.10, gt=0, le=1, allow_inf_nan=False)
+
+
+def confirmation(message):
+    text = "".join(char for char in unicodedata.normalize("NFKD", message.casefold()) if not unicodedata.combining(char))
+    text = " ".join(re.sub(r"[^\w\s]", "", text).split())
+    return text in {"yes", "yeah", "yep", "yup", "yes please", "sure", "sure go ahead", "ok", "okay", "go ahead", "do it", "proceed", "lets do it", "get started", "start", "tak", "tak prosze", "to dawaj", "dawaj", "jasne", "zrob to", "rob to", "jedziemy", "no to dawaj"}
+
+
+def web_request(task):
+    return bool(re.search(r"\b(?:website|webpage|web page|landing page|html|css|javascript|static page|stron\w*)\b", task.casefold()))
 
 
 def wants_changes(message):
@@ -122,13 +133,15 @@ async def send(body: Send):
             store.call("ZADD", store.key("conversations"), conversation["updated_at"], value)
         save()
         approval = conversation.get("pending_action")
-        confirmed = approval and re.fullmatch(r"(?:yes|yes please|go ahead|do it|proceed|tak|zrób to|zrob to)[.! ]*", body.message.casefold().strip())
+        confirmed = bool(approval and confirmation(body.message))
         route_cost = None
         inspected = []
         if greeting(body.message):
             action = {"action": "reply", "text": local_reply()["content"]}
         elif confirmed:
             action = approval if isinstance(approval, dict) else {"action": "execute", "task": approval}
+        elif confirmation(body.message):
+            action = {"action": "reply", "text": "What would you like me to work on? Tell me the goal and I'll get started."}
         else:
             model = resolve_model(body.model_id)
             if not store.allow_paid_request():
@@ -187,11 +200,15 @@ async def send(body: Send):
         if kind in {"execute", "verify"}:
             conversation.pop("pending_action", None)
             authorized = wants_verification(body.message) if kind == "verify" else wants_changes(body.message)
+            runtime = "web" if kind == "execute" and web_request(action["task"]) else "python"
+            previous = store.get(conversation["last_task_id"]) if conversation.get("last_task_id") else None
+            if kind == "execute" and previous and previous.get("runtime") == "web":
+                runtime = "web"
             if not confirmed and not authorized:
                 conversation["pending_action"] = action
                 text = "Would you like me to run the existing tests without changing files?" if kind == "verify" else "Would you like me to implement these changes? I can inspect and explain the project without changing files, or proceed once you confirm."
                 kind = "clarification"
-            elif not tasks_ready():
+            elif not tasks_ready(runtime):
                 conversation["pending_action"] = action
                 text = "I can make those changes, but the execution environment is not ready yet. Use Prepare environment below, then send your request again. No implementation run has started."
                 kind = "setup_required"
@@ -200,13 +217,14 @@ async def send(body: Send):
                 remaining = Decimal(str(body.model_budget_usd)) - spent
                 if remaining <= 0:
                     raise HTTPException(409, "The model budget was used while understanding your request. No implementation run was started.")
-                created = create_task(Task(operation="verify" if kind == "verify" else "edit", task=action["task"], parent_id=conversation.get("last_task_id"), model_id=body.model_id, model_budget_usd=float(remaining)))
+                created = create_task(Task(runtime=runtime, operation="verify" if kind == "verify" else "edit", task=action["task"], parent_id=conversation.get("last_task_id"), model_id=body.model_id, model_budget_usd=float(remaining)))
                 conversation["last_task_id"] = created["id"]
                 conversation.pop("pending_action", None)
                 text = "I'm running the existing checks without changing your project files." if kind == "verify" else "I'm working on your request. I'll show the actual changes, checks and preview here as they become available."
         elif kind == "reply":
             conversation.pop("pending_action", None)
         message = {"id": body.request_id + "-reply", "role": "assistant", "content": text, "kind": kind,
+                   "confirmation": conversation.get("pending_action") if kind == "clarification" else None,
                    "task_id": created["id"] if created else None, "inspection": inspected,
                    "cost_record": route_cost, "local_response": route_cost is None, "created_at": time.time()}
         conversation["messages"].append(message)

@@ -6,3 +6,9 @@ export function WorkCard({task,taskId,onOpen}){
 }
 export function MessageBody({content=''}){return <div className="message-text">{content.split(/(```[\s\S]*?```)/g).map((chunk,index)=>chunk.startsWith('```')?<CodeBlock key={index} content={chunk.slice(3,-3).replace(/^\w*\n/,'')}/>:<p key={index}>{chunk}</p>)}</div>}
 function CodeBlock({content}){const [copied,setCopied]=useState(false);return <div className="message-code"><button aria-label="Copy code" onClick={async()=>{try{await navigator.clipboard.writeText(content);setCopied(true)}catch{setCopied(false)}}}>{copied?<Check size={13}/>:<Copy size={13}/>} {copied?'Copied':'Copy'}</button><pre><code>{content}</code></pre></div>}
+
+export function LiveProgress({events=[],status}){
+  const items=events.filter(event=>event.event==='tool_call'||event.event==='preview_updated'||event.event==='model_thinking').slice(-6)
+  if(!items.length)return null
+  return <div className="live-work-progress" aria-label="Recent agent activity"><strong>{['queued','running'].includes(status)?'Live activity':'Recent activity'}</strong>{items.map((event,index)=><div key={event.sequence||index}><span className="activity-dot"/><span>{event.event==='model_thinking'?'Planning the next step':event.event==='preview_updated'?'Preview updated':event.tool==='dev_write_file'?'Saved file':event.tool==='dev_read_file'?'Read file':event.tool}<small>{event.path||event.arguments?.path||''}</small></span></div>)}</div>
+}

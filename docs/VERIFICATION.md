@@ -186,3 +186,30 @@ model, remote VM or production project data was used in the fixture.
 217 offline Python tests passed before final additional wording/guard cases;
 5 UI polling tests passed and production build succeeded. Translation-only test
 assertions were updated without weakening host-execution security assertions.
+
+
+## Confirmation repair and live static-site builder (2026-11-13)
+
+Short approvals including “to dawaj” and “yeah” consume the stored pending action
+without another routing model call. A bare approval without a pending action
+receives a free clarification. A visible Start this work button submits the same
+confirmation path. Conditional or negative messages never match the approval set.
+
+Static website work now has a bounded JSON file-edit loop, using the existing
+metered engine, daily request limits and project lock. It cannot invoke shell
+commands, install packages or execute generated code on the server. Web text
+assets are path/size validated; each successful write persists files and emits
+real activity/preview events. Follow-ups inherit the web runtime. Python work
+still requires the prepared isolated execution snapshot.
+
+The chat shows recent real file activity. Static reports explicitly say browser
+interactions and automated tests were NOT run. Preview bundling is a structural
+check, not JavaScript syntax validation or evidence that the app works. Existing
+opaque iframe sandbox and restrictive preview CSP are unchanged. There is still
+no remote browser video, mouse control or general application runtime.
+
+Validation: full offline Python suite 237 passed, followed by 66 targeted tests
+including two additional runtime/confirmation regressions. Five UI polling tests
+passed; Vite production build passed. Python imports/tests are separate from
+user-project test execution. All model responses were mocked: no paid model call,
+remote sandbox allocation or real generated-site browser test was performed.

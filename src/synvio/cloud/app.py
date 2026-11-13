@@ -57,6 +57,7 @@ class Chat(BaseModel):
 
 
 class Task(BaseModel):
+    runtime: Literal["python", "web"] = "python"
     operation: Literal["edit", "verify"] = "edit"
     parent_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
     model_budget_usd: float = Field(default=0.10, gt=0, le=1, allow_inf_nan=False)
@@ -121,8 +122,9 @@ def logout(request: Request):
     return response
 
 
-def tasks_ready():
-    return storage_ready() and os.environ.get("SYNVIO_ENABLE_TASKS") == "1" and bool(saved_snapshot(get_store()))
+def tasks_ready(runtime="python"):
+    enabled = storage_ready() and os.environ.get("SYNVIO_ENABLE_TASKS") == "1"
+    return enabled and (runtime == "web" or bool(saved_snapshot(get_store())))
 
 
 @app.get("/api/health")
@@ -238,7 +240,7 @@ def create_task(body: Task):
         raise HTTPException(422, "This is a greeting. Send it in the conversation for a free reply.")
     if body.workspace != PROJECT:
         raise HTTPException(403, "Invalid project. This server does not expose local folders.")
-    if not tasks_ready():
+    if not tasks_ready(body.runtime):
         raise HTTPException(503, health()["tasks_unavailable_reason"])
     model = resolve_model(body.model_id)
     store = get_store()
@@ -255,7 +257,7 @@ def create_task(body: Task):
     now = time.time()
     value = uuid.uuid4().hex
     item = {"id": value, "model_budget_usd": body.model_budget_usd, "task": body.task, "workspace": PROJECT, "model": model, "model_id": body.model_id, "status": "queued", "created_at": now, "updated_at": now, "deadline": now + JOB_SECONDS + 60, "report": None, "error": None}
-    item.update(operation=body.operation, parent_id=body.parent_id, thread_id=parent.get("thread_id", parent["id"]) if parent else value,
+    item.update(runtime=body.runtime, operation=body.operation, parent_id=body.parent_id, thread_id=parent.get("thread_id", parent["id"]) if parent else value,
                 followup_context=context_for(store, parent) if parent else [])
     if not store.create(item):
         raise HTTPException(429, "This project already has an active run. Wait for it to finish.")
@@ -275,7 +277,9 @@ async def run_worker(store, value, oidc_token=None):
     # interpreter's site-packages; the known worker needs the same trusted paths.
     env["PYTHONPATH"] = os.pathsep.join(dict.fromkeys([str(Path(__file__).resolve().parents[2]), *(entry for entry in sys.path if entry)]))
     env["PYTHONDONTWRITEBYTECODE"] = "1"
-    env["SYNVIO_SANDBOX_SNAPSHOT"] = saved_snapshot(store)
+    snapshot = saved_snapshot(store)
+    if snapshot:
+        env["SYNVIO_SANDBOX_SNAPSHOT"] = snapshot
     if oidc_token:
         env["VERCEL_OIDC_TOKEN"] = oidc_token
     elif os.environ.get("VERCEL_OIDC_TOKEN"):
@@ -304,7 +308,7 @@ async def execute_task(value: str, request: Request):
     item = task_row(store, value)
     if item["status"] != "queued":
         return {"id": value, "status": item["status"]}
-    if not tasks_ready():
+    if not tasks_ready(item.get("runtime", "python")):
         raise HTTPException(503, "The execution environment is disabled.")
     # Atomic claim: a browser retry must not launch a second model loop.
     claimed = store.call("EVAL", "if redis.call('GET',KEYS[2])==ARGV[1] and redis.call('HGET',KEYS[1],'status')=='\"queued\"' then redis.call('HSET',KEYS[1],'status','\"running\"');redis.call('EXPIRE',KEYS[2],ARGV[2]);return 1 else return 0 end", 2, store.key("task", value), store.key("project-lock"), value, JOB_SECONDS + 30)

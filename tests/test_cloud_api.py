@@ -395,14 +395,15 @@ def test_unified_inspection_reads_real_files_without_writes_or_tests(client, mon
     assert store.history(50) == []
 
 
-def test_question_cannot_start_implementation_even_if_model_misroutes(client, monkeypatch):
+@pytest.mark.parametrize("approval", ["yes", "to dawaj", "yeah", "Go ahead!"])
+def test_question_cannot_start_implementation_even_if_model_misroutes(client, monkeypatch, approval):
     login(client)
     calls = assistant_engine(monkeypatch, [{"action": "execute", "task": "Rewrite the calculator"}])
     first = client.post("/api/assistant", json={"request_id": "d" * 32, "message": "How does the calculator work?"})
     assert first.json()["message"]["kind"] == "clarification"
     assert first.json()["task"] is None
     assert cloud.get_store().history(50) == []
-    second = client.post("/api/assistant", json={"request_id": "e" * 32, "conversation_id": "d" * 32, "message": "yes"})
+    second = client.post("/api/assistant", json={"request_id": "e" * 32, "conversation_id": "d" * 32, "message": approval})
     assert second.status_code == 200
     assert second.json()["task"]["status"] == "queued"
     assert len(calls) == 1
@@ -425,7 +426,7 @@ def test_unified_execution_shares_budget_and_never_queues_twice(client, monkeypa
 def test_unified_execution_reports_missing_runtime_without_starting_work(client, monkeypatch):
     login(client)
     assistant_engine(monkeypatch, [{"action": "execute", "task": "Create a page"}])
-    monkeypatch.setattr(cloud, "tasks_ready", lambda: False)
+    monkeypatch.setattr(cloud, "tasks_ready", lambda *args: False)
     result = client.post("/api/assistant", json={"request_id": "1" * 32, "message": "Create a page"})
     assert result.status_code == 200
     assert result.json()["message"]["kind"] == "setup_required"
@@ -440,6 +441,26 @@ def test_unified_requested_verification_queues_readonly_operation(client, monkey
     assert result.status_code == 200
     value = result.json()["task"]["id"]
     assert cloud.get_store().get(value)["operation"] == "verify"
+
+
+def test_bare_approval_without_pending_work_is_free(client, monkeypatch):
+    login(client)
+    calls = assistant_engine(monkeypatch, [])
+    result = client.post('/api/assistant', json={'request_id': '8' * 32, 'message': 'yeah'})
+    assert result.status_code == 200
+    assert result.json()['message']['local_response']
+    assert result.json()['task'] is None and calls == []
+
+
+def test_static_website_can_queue_without_execution_snapshot(client, monkeypatch):
+    login(client)
+    monkeypatch.setattr(cloud, 'saved_snapshot', lambda store: None)
+    assistant_engine(monkeypatch, [{'action': 'execute', 'task': 'Build a simple website'}])
+    result = client.post('/api/assistant', json={'request_id': '9' * 32, 'message': 'Build a simple website'})
+    assert result.status_code == 200
+    assert result.json()['task'] is not None
+    assert cloud.get_store().get(result.json()['task']['id'])['runtime'] == 'web'
+    assert not cloud.tasks_ready('python')
 
 
 def test_verification_worker_never_opens_model_or_publishes_project_changes(client, monkeypatch):
