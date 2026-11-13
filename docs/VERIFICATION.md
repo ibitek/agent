@@ -265,3 +265,41 @@ build passed. A loopback fixture verified light/dark appearance and persistence,
 model selection, and the side-by-side project preview. The fixture is explicitly
 marked DEMO and made no paid API calls. Cloud browser/desktop controls remain
 unconnected; the environment panel separates static editing from full execution.
+
+
+## React / Vite compilation previews (2026-11-13)
+
+The assistant recognizes explicit React/Vite requests and saves a complete source
+project through bounded text-file operations. Source-only success is marked
+files_only, never tests passed or compiled. Existing static and Python execution
+paths retain their protections. Follow-ups inherit the application runtime.
+
+Build preview is an explicit owner action on a terminal task's saved files. It
+creates one nonpersistent Vercel VM (1 vCPU, 2 GiB, at most 160 seconds, no ports
+and no host credentials). npm installation permits only registry.npmjs.org and
+disables lifecycle scripts. Network is denied before running the build. All
+project-authored code executes in that VM, never on the SYNVIO host. Context exit
+stops and destroys the VM on success or error. No permanent public app URL is
+created; bounded text artifacts return to the existing opaque iframe preview.
+
+Build request IDs and a shared lock prevent repeated allocation; successful
+artifacts are reused for the same immutable task. Explicit retries after failure
+are possible, with a four-build daily test allowance. Infrastructure usage is
+separate from the AI budget and is stated before the user clicks. Read-only
+status, logs, preview fetches and model selection allocate no VM.
+
+This supports Vite frontend production builds, not backend services, arbitrary
+frameworks, browser video, or computer control. Native/binary build assets,
+imported chunks and oversized bundles may not render in the restricted preview.
+An actual compiler pass is distinguished from browser/interaction testing.
+
+Validation: 254 full offline tests passed before the final source-only regression;
+56 targeted cloud/build/source tests plus 5 UI polling tests passed afterward.
+Frontend build passed. A loopback browser fixture verified the Build preview
+button, real UI status/log flow and resulting iframe using explicitly labeled
+DEMO data. All Sandbox SDK calls were mocked. No real Vercel VM or model call
+was made for this change, so production infrastructure permissions and end-to-end
+React compilation still require a real owner-triggered run.
+
+SDK contract checked against installed vercel Python package and official docs:
+https://vercel.com/docs/sandbox/python-sdk-reference

@@ -45,3 +45,17 @@ def test_web_builder_rejects_unsafe_or_executable_host_files(path):
 def test_web_builder_cannot_execute_commands():
     with pytest.raises(ValueError, match='Unsupported website action'):
         build(Store(), {'id': 'a', 'task': 'Build a site', 'model': 'fake'}, {}, Engine([{'action': 'shell', 'command': 'whoami'}]))
+
+
+def test_react_source_is_not_falsely_reported_as_compiled():
+    store = Store()
+    engine = Engine([
+        {'action':'write','path':'package.json','content':json.dumps({'scripts':{'build':'vite build'},'devDependencies':{'vite':'6.4.6'}})},
+        {'action':'write','path':'src/main.jsx','content':'import React from "react"; export default function App(){return <h1>Hello</h1>}'},
+        {'action':'finish','text':'Saved source.'},
+    ])
+    build(store, {'id':'app','runtime':'app','task':'Build React application','model':'fake'}, {}, engine)
+    report = store.result['report']
+    assert report['success'] and report['verification_level']=='files_only'
+    assert report['browser_verified'] is False and report['tests']==[]
+    assert 'Compilation and browser tests were not run' in report['attempt_details'][0]['final_answer']

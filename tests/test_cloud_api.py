@@ -568,3 +568,39 @@ def test_stronger_catalog_is_distinct_priced_and_server_gated(client, monkeypatc
     assert {item['model'] for item in models} == {'gpt-4o-mini','gpt-4o','gpt-4.1-mini','gpt-4.1'}
     assert all(item['available'] and item['pricing']['currency']=='USD' for item in models)
     assert resolve_model('openai:gpt-4.1') == 'gpt-4.1'
+
+
+def test_application_build_is_owner_only_idempotent_and_keeps_model_quota(client, monkeypatch):
+    assert client.get('/api/tasks/'+'a'*32+'/build-preview').status_code == 401
+    login(client)
+    from synvio.cloud import app_build
+    value = client.post('/api/tasks', json={'task':'Build a React app','runtime':'app'}).json()['id']
+    store = cloud.get_store()
+    store.put_json('files',value,{'package.json':json.dumps({'devDependencies':{'vite':'6.4.6'},'scripts':{'build':'vite build'}}),'index.html':'<div>source</div>'})
+    store.fields(value,status='completed')
+    calls=[]
+    async def fake_build(store, task, request, files):
+        calls.append(task)
+        state={'status':'ready','request_id':request,'browser_verified':False}
+        store.put_json('application-build',task,state)
+        store.put_json('built-files',task,{'dist/index.html':'<h1>Built</h1>'})
+        return state
+    monkeypatch.setattr(app_build,'build',fake_build)
+    payload={'request_id':'3'*32}
+    result=client.post(f'/api/tasks/{value}/build-preview',json=payload)
+    assert result.status_code == 200 and result.json()['status']=='ready'
+    assert client.post(f'/api/tasks/{value}/build-preview',json=payload).json()==result.json()
+    assert len(calls)==1
+    preview=client.get(f'/api/tasks/{value}/preview').json()
+    assert preview['available'] and preview['kind']=='built_application' and preview['can_build']
+    monkeypatch.setenv('SYNVIO_DAILY_REQUEST_LIMIT','1')
+    assert store.allow_paid_request()
+
+
+def test_react_routing_uses_original_source_request_without_snapshot(client, monkeypatch):
+    login(client)
+    monkeypatch.setattr(cloud,'saved_snapshot',lambda store:None)
+    assistant_engine(monkeypatch,[{'action':'execute','task':'Build the React app'}])
+    response=client.post('/api/assistant',json={'request_id':'4'*32,'message':'Build a React dashboard with Vite'})
+    assert response.status_code==200
+    assert cloud.get_store().get(response.json()['task']['id'])['runtime']=='app'

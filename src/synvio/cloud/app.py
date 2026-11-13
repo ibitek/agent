@@ -57,7 +57,7 @@ class Chat(BaseModel):
 
 
 class Task(BaseModel):
-    runtime: Literal["python", "web"] = "python"
+    runtime: Literal["python", "web", "app"] = "python"
     operation: Literal["edit", "verify"] = "edit"
     parent_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
     model_budget_usd: float = Field(default=0.10, gt=0, le=1, allow_inf_nan=False)
@@ -124,7 +124,7 @@ def logout(request: Request):
 
 def tasks_ready(runtime="python"):
     enabled = storage_ready() and os.environ.get("SYNVIO_ENABLE_TASKS") == "1"
-    return enabled and (runtime == "web" or bool(saved_snapshot(get_store())))
+    return enabled and (runtime in {"web", "app"} or bool(saved_snapshot(get_store())))
 
 
 @app.get("/api/health")
@@ -419,10 +419,59 @@ def download(value: str):
 def preview(value: str):
     store = get_store()
     item = task_row(store, value)
+    built = store.get_json('built-files', value)
+    if built is not None:
+        return {**build_preview(built), 'kind':'built_application', 'can_build':True, 'build':store.get_json('application-build', value)}
     content = store.get_json("preview-files", value) if item["status"] == "running" else store.get_json("files", value)
     if content is None:
         content = store.get_json("files", value)
     if content is None:
         reason = item.get('error') or (item.get('report') or {}).get('reason')
         return {"available": False, "reason": ("This run stopped before a preview was saved: " + reason) if reason else "No preview has been saved yet. Check Activity for the current progress."}
-    return build_preview(content)
+    return {**build_preview(content), 'can_build': 'package.json' in content}
+
+
+class BuildPreview(BaseModel):
+    request_id: str = Field(pattern=r'^[a-f0-9]{32}$')
+
+
+@app.get('/api/tasks/{value}/build-preview')
+def build_preview_status(value: str):
+    store = get_store()
+    task_row(store, value)
+    state = store.get_json('application-build', value, {'status':'not_started'})
+    if state.get('status') == 'building' and time.time() > state.get('deadline', float('inf')):
+        state = {**state, 'status':'failed', 'error':'The build was interrupted or timed out. Start a new build explicitly to retry.'}
+        store.put_json('application-build', value, state)
+    return {**state, 'events':[item for item in store.events(value) if item['event']=='application_build'][-12:]}
+
+
+@app.post('/api/tasks/{value}/build-preview')
+async def build_application_preview(value: str, body: BuildPreview):
+    from .app_build import build, validate_app
+    store = get_store()
+    task = task_row(store, value)
+    if task['status'] in {'queued','running'}:
+        raise HTTPException(409, 'Wait for file editing to finish before building the preview.')
+    if not tasks_ready('app'):
+        raise HTTPException(503, 'Cloud application builds are disabled.')
+    files = store.get_json('files', value)
+    try:
+        validate_app(files or {})
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+    state = store.get_json('application-build', value, {})
+    if state.get('status') == 'ready' or state.get('request_id') == body.request_id:
+        return state
+    lock = store.key('application-build-lock')
+    if not store.call('SET', lock, body.request_id, 'NX', 'EX', 210):
+        raise HTTPException(409, 'An application build is already running.')
+    try:
+        from datetime import datetime, timezone
+        day = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+        if not store.meter('application-build:' + day, 4, 2*24*60*60):
+            raise HTTPException(429, 'The four-build daily allowance has been reached. No VM was started.')
+        store.put_json('application-build', value, {'status':'building','request_id':body.request_id,'deadline':time.time()+210})
+        return await build(store, value, body.request_id, files)
+    finally:
+        store.call('EVAL', "if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) else return 0 end", 1, lock, body.request_id)
