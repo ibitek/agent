@@ -508,3 +508,21 @@ Validation: 329 offline Python tests, 6 polling tests and the production fronten
 build passed. A local browser fixture confirmed actual runtime error/empty-mount
 messages reach Preview and Console. Real nexthelpOS source fixes were saved in
 production; its new cloud build was not initiated by this verification.
+
+## Runtime dependency startup recovery (2026-11-13)
+
+The first deployment of the preview fix failed before API import in cold regions.
+Vercel runtime logs showed uv unpacking the transitive datasets/pandas/pyarrow
+stack into /tmp and failing with ENOSPC. Production traffic was rolled back to
+previous deployment dpl_GdoZQgakYHrK3x8qrC7AQPmHodoM; /api/session returned HTTP 200.
+
+SYNVIO's uv graph now excludes unused datasets. The inference/agent SDK source and
+its pinned commit are unchanged, and the existing installed SDK was not edited.
+The lock and requirements were regenerated without upgrading remaining packages.
+The exported production runtime no longer contains datasets, pandas, pyarrow or
+numpy. Dataset evaluation is not a SYNVIO feature and was not used by its source.
+
+A separate clean production-only environment successfully loaded the API, served
+/api/session and initialized the real SDK cloud engine with a fake key and network
+blocked. tools/verify_cloud_runtime.py reproduces this check without pytest or a
+provider request. The ordinary local development environment remains intact.

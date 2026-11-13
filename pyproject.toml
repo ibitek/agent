@@ -42,3 +42,9 @@ markers = [
     "cloud: requires cloud API keys",
     "step: agent step limit test",
 ]
+
+[tool.uv]
+# SYNVIO uses OpenJarvis inference/agent primitives, not dataset evaluation.
+# Exclude its unused data-download stack from this application's locked runtime.
+# The OpenJarvis source and the separately installed SDK remain unchanged.
+exclude-dependencies = ["datasets"]
