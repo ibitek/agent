@@ -57,7 +57,11 @@ class GatewayEngine:
 
 @contextmanager
 def engine_for(config):
-    if config.model_override in SUPPORTED:
+    from .responses import MODELS, engine
+    if config.model_override in MODELS:
+        with engine() as instance:
+            yield instance
+    elif config.model_override in SUPPORTED:
         yield GatewayEngine()
     else:
         from synvio.runtime import engine_for as existing_engine

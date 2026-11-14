@@ -37,6 +37,9 @@ def run(task_id):
         workspace.clear_mutations()
         policy = limits()
         config = SYNVIOConfig(provider="openai", engine="cloud", model_override=task["model"], reasoning_mode=reasoning_for(task["model_id"]), agent_steps_limit=policy["steps_per_attempt"], tool_execution_limit=policy["tool_calls_per_task"], max_repair_attempts=1, total_step_limit=policy["steps_per_attempt"], total_tool_limit=policy["tool_calls_per_task"], max_test_runs=policy["model_test_runs"], test_timeout_seconds=policy["test_timeout_seconds"])
+        if task.get('model_id','').startswith(('codex:','codex-browser:')) and task.get('operation') != 'verify':
+            from .codex_workspace import run as codex_run
+            return codex_run(store,task,baseline)
         if task.get("runtime") in {"web", "app", "source"} and task.get("operation") != "verify":
             from .web_builder import build
             with engine_for(config) as engine:

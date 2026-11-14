@@ -12,6 +12,8 @@ from .images import VISION_TOKENS, validate_images, require_vision
 RATE_VERSION = "openai-standard-text-2026-11-13"
 RATE_SOURCE = "https://developers.openai.com/api/docs/models/"
 RATES = {
+    "gpt-6.1-sol": (Decimal("2"), Decimal("0.10"), Decimal("10")),
+    "gpt-6-astra": (Decimal("10"), Decimal("1"), Decimal("50")),
     "gpt-4o-mini": (Decimal("0.15"), Decimal("0.075"), Decimal("0.60")),
     "gpt-4o": (Decimal("2.50"), Decimal("1.25"), Decimal("10")),
     "gpt-4.1-mini": (Decimal("0.40"), Decimal("0.10"), Decimal("1.60")),
@@ -138,7 +140,7 @@ class MeteredEngine:
             image_tokens += len(images) * VISION_TOKENS.get(model, 0)
             parts = ([{"type": "text", "text": content}] + [{"type": "image_url", "image_url": {"url": value, "detail": "low"}} for value in images]) if images else content
             image_payload.append({"role": role, "content": parts})
-        if image_tokens and self.observed is None:
+        if image_tokens and self.observed is None and not getattr(self.engine, "is_responses", False):
             raise BudgetExceeded("This engine does not support metered image inputs.")
         output_limit = count(max_tokens)
         if not 1 <= output_limit <= 16384:
@@ -157,7 +159,7 @@ class MeteredEngine:
             if self.observed:
                 self.observed.usage = None
                 self.observed.response_id = None
-            if image_tokens:
+            if image_tokens and not getattr(self.engine, "is_responses", False):
                 response = self.observed.create(model=model, messages=image_payload, max_tokens=output_limit, **kwargs)
                 result = {"content": response.choices[0].message.content or "", "usage": self.observed.usage}
             else:

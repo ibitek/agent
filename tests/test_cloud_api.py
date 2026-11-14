@@ -564,9 +564,9 @@ def test_stronger_catalog_is_distinct_priced_and_server_gated(client, monkeypatc
     assert blocked.value.status_code == 403
     monkeypatch.setenv('SYNVIO_ALLOW_EXPENSIVE_MODELS', '1')
     all_models = client.get('/api/models').json()['items']
-    models = [item for item in all_models if item['provider']=='openai']
+    models = [item for item in all_models if item['id'].startswith('openai:')]
     assert len({item['model'] for item in models}) == len(models)
-    assert {item['model'] for item in models} == {'gpt-4o-mini','gpt-4o','gpt-4.1-mini','gpt-4.1'}
+    assert {item['model'] for item in models} == {'gpt-4o-mini','gpt-4o','gpt-4.1-mini','gpt-4.1','gpt-6.1-sol','gpt-6-astra'}
     assert all(item['available'] and item['pricing']['currency']=='USD' for item in models)
     assert resolve_model('openai:gpt-4.1') == 'gpt-4.1'
 

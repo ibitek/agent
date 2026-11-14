@@ -245,7 +245,7 @@ def wallet():
     model_total = sum((Decimal(record.get('service_estimated_cost_usd') or service_amount(record.get('estimated_cost_usd','0'))) for record in records), Decimal(0))
     return {'currency':'USD','payments_enabled':False,'balance_usd':None,'model_usage_estimate_usd':str(model_total),
             'compute_price_per_minute_usd':str(COMPUTE_PER_MINUTE),'compute_billing_unit':'second',
-            'compute_usage_estimate_usd':str(sum((Decimal(compute_estimate((get_store().get_json('application-build',task['id']) or {}).get('duration_seconds',0))) for task in get_store().history(50)),Decimal(0))),
+            'compute_usage_estimate_usd':str(sum((Decimal(compute_estimate((get_store().get_json('application-build',task['id']) or {}).get('duration_seconds',0))) + Decimal(task.get('codex_compute_estimate_usd','0')) for task in get_store().history(50)),Decimal(0))),
             'bonus_max_percent':20,'bonus_tiers':[{'deposit_usd':amount,'bonus_percent':bonus} for amount,bonus in [('5',2),('12.50',5),('25',10),('50',15),('100',20)]], 'usage_window':'Latest 50 records per source and latest build per run. Estimates at current service rates, not an invoice.'}
 
 
@@ -546,3 +546,6 @@ async def _finish_build(store,value,request_id,files,lock):
         return await build(store,value,request_id,files)
     finally:
         store.call("EVAL", "if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) else return 0 end",1,lock,request_id)
+
+from .codex_workspace import router as codex_router
+app.include_router(codex_router)

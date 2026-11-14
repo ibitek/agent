@@ -9,6 +9,8 @@ from fastapi import HTTPException
 
 MODELS = {"openai:low": "gpt-4o-mini", "openai:medium": "gpt-4o", "openai:high": "gpt-4o"}
 MODELS.update({"openai:gpt-4.1-mini": "gpt-4.1-mini", "openai:gpt-4.1": "gpt-4.1"})
+MODELS.update({'openai:gpt-6.1-sol':'gpt-6.1-sol','openai:gpt-6-astra':'gpt-6-astra',
+               'codex-browser:gpt-6.1-sol':'gpt-6.1-sol','codex:gpt-6.1-sol':'gpt-6.1-sol','codex:gpt-6-astra':'gpt-6-astra'})
 PROJECT = "project"
 MAX_FILE_BYTES = 256 * 1024
 MAX_PROJECT_BYTES = 2 * 1024 * 1024
@@ -49,13 +51,29 @@ def model_catalog() -> list[dict]:
     from .retail import service_amount
     ready = bool(os.environ.get("OPENAI_API_KEY", "").strip())
     result = []
+    try:
+        from .store import Store
+        access = Store().get_json('codex-access','project') or {}
+    except Exception:
+        access = {}
     for mode, model in MODELS.items():
         if mode == 'openai:high':
             continue  # Retain old IDs for saved runs without duplicate choices.
         affordable = mode == "openai:low" or os.environ.get("SYNVIO_ALLOW_EXPENSIVE_MODELS") == "1"
-        result.append({"id": mode, "provider": "openai", "engine": "cloud", "model": model, "reasoning_mode": mode.split(":")[1], "label": model, "available": ready and affordable, "unavailable_reason": None if ready and affordable else "The model API key is not configured." if not ready else "Model disabled in cost settings."})
+        result.append({"id": mode, "provider": "openai", "engine": "cloud", "model": model, "reasoning_mode": mode.split(":")[1], "label": ("Codex + Browser · "+model) if mode.startswith("codex-browser:") else ("Codex · "+model) if mode.startswith(("codex:","codex-browser:")) else model, "available": ready and affordable, "unavailable_reason": None if ready and affordable else "The model API key is not configured." if not ready else "Model disabled in cost settings."})
+        if mode.startswith(('codex:','codex-browser:')):
+            result[-1]['engine']='codex'
+            result[-1]['available']=ready and affordable and bool(access.get('available'))
+            if not result[-1]['available']:
+                result[-1]['unavailable_reason']=access.get('reason') or 'Use Check Codex access to verify this account.'
+        elif model in {'gpt-6.1-sol','gpt-6-astra'}:
+            result[-1]['engine']='responses'
+        checked=(access.get('models') or {}).get(model)
+        if checked and not checked['available']:
+            result[-1]['available']=False
+            result[-1]['unavailable_reason']='This model is not available to the server API account.'
         rate = [service_amount(value) for value in RATES[model]]
-        result[-1].update(reasoning_mode=reasoning_for(mode), pricing={"input_per_million": str(rate[0]), "cached_input_per_million": str(rate[1]), "output_per_million": str(rate[2]), "currency": "USD"}, description={"gpt-4o-mini": "Everyday · lowest cost", "gpt-4.1-mini": "Balanced · coding and instructions", "gpt-4.1": "Advanced · complex coding", "gpt-4o": "General purpose"}[model])
+        result[-1].update(reasoning_mode=reasoning_for(mode), pricing={"input_per_million": str(rate[0]), "cached_input_per_million": str(rate[1]), "output_per_million": str(rate[2]), "currency": "USD"}, capabilities={"images": not mode.startswith("gateway:"), "workspace":mode.startswith(("codex:","codex-browser:"))}, description={"gpt-6.1-sol":"Codex workspace · reasoning, terminal and files" if mode.startswith(("codex:","codex-browser:")) else "Advanced coding · Responses API", "gpt-6-astra":"Codex workspace · highest capability" if mode.startswith(("codex:","codex-browser:")) else "Advanced reasoning · Responses API", "gpt-4o-mini": "Everyday · lowest cost", "gpt-4.1-mini": "Balanced · coding and instructions", "gpt-4.1": "Advanced · complex coding", "gpt-4o": "General purpose"}[model])
     from .gateway import CATALOG, SUPPORTED, connected
     from decimal import Decimal
     for item in CATALOG['models']:

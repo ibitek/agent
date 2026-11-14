@@ -5,7 +5,7 @@ from typing import Annotated
 
 from pydantic import AfterValidator, Field
 
-VISION_TOKENS = {"gpt-4o-mini": 2833, "gpt-4o": 85}
+VISION_TOKENS = {"gpt-4o-mini": 2833, "gpt-4o": 85, "gpt-4.1-mini": 12000, "gpt-4.1": 85, "gpt-6.1-sol": 32768, "gpt-6-astra": 310}
 
 
 def validate_images(images):
@@ -32,4 +32,4 @@ Images = Annotated[list[str], Field(max_length=2), AfterValidator(validate_image
 
 def require_vision(model, images):
     if images and model not in VISION_TOKENS:
-        raise ValueError("Image attachments currently require GPT-4o mini or GPT-4o.")
+        raise ValueError("This provider adapter does not support image attachments yet. Select an OpenAI vision model.")
