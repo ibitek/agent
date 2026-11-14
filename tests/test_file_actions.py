@@ -65,3 +65,19 @@ def test_finish_requires_local_asset_references_to_resolve():
     assert store.result['status']=='completed'
     assert store.result['report']['steps_used']==4
     assert any(e['event']=='preview_source_check' for e in store.events)
+
+
+def test_compact_history_never_teaches_non_string_write_content():
+    from synvio.cloud.file_actions import compact_action
+    note=compact_action({'action':'write','path':'index.html','content':'<h1>Hello</h1>'})
+    assert 'not an action schema' in note
+    assert 'content' not in note and '<h1>' not in note
+
+
+def test_preview_repair_stops_after_the_same_error_twice():
+    store=Store()
+    build(store,{'id':'a','task':'Build a site','model':'fake'},
+        {'index.html':'<link rel="stylesheet" href="missing.css"><h1>Saved</h1>'},Engine([
+            {'action':'finish','text':'Ready'},{'action':'finish','text':'Ready again'}]))
+    assert store.result['status']=='paused'
+    assert store.result['report']['reason']=='validation_stalled'

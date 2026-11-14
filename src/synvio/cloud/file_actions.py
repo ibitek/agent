@@ -60,9 +60,7 @@ def apply(action,files,request,application=False,source_only=False):
 
 def compact_action(action):
     """Do not send already-saved full source back as assistant output every turn."""
-    def trim(item):
-        return {key:({'characters':len(value),'omitted_from_history':True} if key in {'content','old','new'} and isinstance(value,str) else value)
-                for key,value in item.items()}
-    if action.get('action')=='batch':
-        return json.dumps({'action':'batch','actions':[trim(item) for item in operations(action)]},ensure_ascii=False)
-    return json.dumps(trim(action),ensure_ascii=False)
+    # Never put an object/placeholder in a `content` field: a model may copy
+    # that as its next write payload. Notes are clearly distinct from actions.
+    return 'Previous operation summary (not an action schema; bodies omitted): '+ '; '.join(
+        item['action']+' '+str(item.get('path','')) for item in operations(action))
