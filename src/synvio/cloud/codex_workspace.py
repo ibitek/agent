@@ -138,7 +138,7 @@ def run(store,task,baseline):
             api.beta.agents.sessions.list(limit=1)
             cents=int((amount(task['model_budget_usd'])*100).to_integral_value(rounding=ROUND_FLOOR))
             if cents<1: raise ValueError('Codex requires at least one provider cent in the request limit.')
-            store.write_cost(task['id'],cost_record(task))
+            store.write_cost(task['id'],{'event':'model_cost',**cost_record(task)})
             store.fields(task['id'],codex_submission=submission)
             tools=[{'type':'web_search'}]
             if browser: tools.append({'type':'computer_use','include_screenshots':True})
@@ -213,6 +213,10 @@ def run(store,task,baseline):
         except ValueError:
             store.put_json('candidate-files',task['id'],files)
             raise ValueError('Codex output would remove unrelated code or styles. Candidate snapshot saved; the working project was not replaced.')
+        package=json.loads(files.get('package.json','{}'))
+        if 'vite' in {**package.get('dependencies',{}),**package.get('devDependencies',{})}:
+            task['runtime']='app'
+            store.fields(task['id'],runtime='app')
         changed=[path for path in files if files[path]!=baseline.get(path)]
         report={'task':task['task'],'success':True,'reason':'codex_source_saved','verification_level':'agent_reported',
             'browser_verified':False,'tests':[],'files_created':[p for p in changed if p not in baseline],

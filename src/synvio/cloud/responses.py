@@ -14,7 +14,10 @@ class ResponsesEngine:
         payload = []
         for message in messages:
             role = getattr(message.role, 'value', str(message.role))
-            parts = [{'type':'output_text' if role == 'assistant' else 'input_text', 'text':message.content}]
+            if role == 'assistant':
+                payload.append({'role':role,'content':message.content})
+                continue
+            parts = [{'type':'input_text', 'text':message.content}]
             parts += [{'type':'input_image','image_url':image,'detail':'low'} for image in (getattr(message, 'images', None) or [])]
             payload.append({'role':role,'content':parts})
         options = {'model':model,'input':payload,'max_output_tokens':max_tokens,
