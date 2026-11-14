@@ -21,6 +21,7 @@ def run(task_id):
         return 1
     temporary = tempfile.TemporaryDirectory(prefix="synvio-cloud-")
     os.environ["OPENJARVIS_HOME"] = str(Path(temporary.name) / "sdk")
+    baseline = None
     try:
         from synvio.autodev.agent import DeveloperAgent
         from synvio.autodev.workspace import Workspace
@@ -38,7 +39,7 @@ def run(task_id):
         policy = limits()
         config = SYNVIOConfig(provider="openai", engine="cloud", model_override=task["model"], reasoning_mode=reasoning_for(task["model_id"]), agent_steps_limit=policy["steps_per_attempt"], tool_execution_limit=policy["tool_calls_per_task"], max_repair_attempts=1, total_step_limit=policy["steps_per_attempt"], total_tool_limit=policy["tool_calls_per_task"], max_test_runs=policy["model_test_runs"], test_timeout_seconds=policy["test_timeout_seconds"])
         if task.get('model_id','').startswith(('codex:','codex-browser:')) and task.get('operation') != 'verify':
-            from .codex_workspace import run as codex_run
+            from .codex_cli import run as codex_run
             return codex_run(store,task,baseline)
         if task.get("runtime") in {"web", "app", "source"} and task.get("operation") != "verify":
             from .web_builder import build
@@ -100,6 +101,16 @@ def run(task_id):
         store.event(task_id, {"event": "task_finished", "status": status, "success": report.success})
         return 0
     except Exception as exc:
+        if baseline is not None:
+            try:
+                preserved = store.get_json("files", task_id)
+                if preserved is None:
+                    preserved = baseline
+                store.finish(task, preserved, "paused", {"task": task["task"], "success": False,
+                    "reason": "work_paused", "cost_record": (store.get(task_id) or {}).get("cost_record") or {},
+                    "attempt_details": [{"final_answer": public_error(exc)}]})
+            except Exception:
+                pass  # An expired lease cannot publish a revision.
         store.fields(task_id, status="paused", error=public_error(exc), updated_at=time.time())
         store.event(task_id, {"event": "task_error", "error": public_error(exc)})
         return 1

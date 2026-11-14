@@ -11,6 +11,21 @@ from test_web_builder import Store
 FILES = {'package.json':json.dumps({'scripts':{'build':'vite build'},'devDependencies':{'vite':'6.4.6'}}), 'index.html':'<div id="root"></div><script type="module" src="/src/main.jsx"></script>', 'src/main.jsx':'document.getElementById("root").textContent="Hello"'}
 
 
+def test_compilation_reuse_requires_identical_source():
+    from synvio.cloud.app_build import reuse_build, source_hash
+    class Cache(Store):
+        def get_json(self,kind,key): return self.saved.get((kind,key))
+        def get(self,key): return None
+    store=Cache()
+    store.put_json('files','old',FILES)
+    store.put_json('application-build','old',{'status':'ready','duration_seconds':20})
+    store.put_json('built-files','old',{'dist/index.html':'<h1>Compiled</h1>'})
+    store.put_json('build-cache',source_hash(FILES),'old')
+    state=reuse_build(store,{'id':'new'},FILES)
+    assert state['duration_seconds']==0 and state['reused_from']=='old'
+    assert reuse_build(store,{'id':'changed','parent_id':'old'},{**FILES,'src/main.jsx':'changed'}) is None
+
+
 @pytest.mark.parametrize('files', [{}, {'package.json':'not JSON'}, {'package.json':'[]'}, {'package.json':'{}'}])
 def test_invalid_application_never_reaches_vm(files):
     with pytest.raises(ValueError, match='Vite projects'):

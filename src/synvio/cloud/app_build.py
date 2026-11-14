@@ -1,5 +1,6 @@
 """Owner-triggered Vite builds in disposable VMs; only text artifacts return."""
 import json
+import hashlib
 import posixpath
 import re
 import time
@@ -11,6 +12,37 @@ from .sandbox_runner import BoundedOutput
 from .preview import build_preview
 
 ROOT = '/vercel/sandbox/project'
+
+
+def source_hash(files):
+    return hashlib.sha256(json.dumps(files,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
+
+
+def reuse_build(store,task,files):
+    """Reuse only an immutable compilation of exactly the same source snapshot."""
+    digest=source_hash(files)
+    candidates=[store.get_json('build-cache',digest)]
+    current=task.get('parent_id')
+    for _ in range(12):
+        if not current: break
+        candidates.append(current)
+        previous=store.get(current)
+        current=previous.get('parent_id') if previous else None
+    for value in dict.fromkeys(candidates):
+        if not value or value==task['id']: continue
+        before=store.get_json('files',value)
+        state=store.get_json('application-build',value) or {}
+        if before is None or source_hash(before)!=digest or state.get('status')!='ready': continue
+        artifacts=store.get_json('built-files',value)
+        if not artifacts or not build_preview(artifacts)['available']: continue
+        result={**state,'duration_seconds':0,'reused_from':value,'source_hash':digest,'model_calls':0}
+        store.put_json('built-files',task['id'],artifacts)
+        store.put_json('application-build',task['id'],result)
+        store.event(task['id'],{'event':'application_build','phase':'reused','source_id':value})
+        return result
+    return None
+
+
 COLLECT = '''import json
 from pathlib import Path
 root=Path('/vercel/sandbox/project/dist').resolve()
@@ -134,6 +166,7 @@ async def build(store, task_id, request_id, files):
         state = {'status':'ready', 'request_id':request_id, 'duration_seconds':time.monotonic()-started,
                  'browser_verified':False, 'checks':'production_build', 'model_calls':0}
         store.put_json('application-build', task_id, state)
+        store.put_json('build-cache',source_hash(files),task_id)
         store.event(task_id, {'event':'preview_updated','kind':'built_application'})
         event('ready')
         return state

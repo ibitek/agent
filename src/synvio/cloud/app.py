@@ -88,7 +88,8 @@ def get_store():
 @app.middleware("http")
 async def session_guard(request, call_next):
     try:
-        if request.url.path not in {"/api/session", "/api/login", "/api/editor/config"}:
+        proxy_request = request.method == "POST" and re.fullmatch(r"/api/codex-proxy/[a-f0-9]{32}/responses", request.url.path)
+        if not proxy_request and request.url.path not in {"/api/session", "/api/login", "/api/editor/config"}:
             auth.require(request)
         response = await call_next(request)
     except HTTPException as exc:
@@ -259,7 +260,17 @@ def task_row(store, value):
             store.event(value, {"event": "task_error", "error": "The run timed out."})
             store.release(value)
         item = store.get(value)
-    public = {key: value for key, value in item.items() if key != "images"}
+    cost=item.get('cost_record') or {}
+    if (item.get('status')=='paused' and "Unknown parameter: 'spend_control'" in str(item.get('error',''))
+            and cost.get('rate_version')=='openai-managed-codex-2026-11-14'
+            and cost.get('estimated_cost_usd')=='0.000000000'):
+        # A known request-validation rejection started no inference. It is not
+        # an ambiguous network failure and must not ask for unknown-cost consent.
+        cost={**cost,'unresolved_reservation_usd':'0.000000000','service_reserved_usd':'0.000000000',
+              'calls':[{**entry,'state':'rejected','provider_status':400} for entry in cost.get('calls',[])]}
+        store.fields(value,cost_record=cost)
+        item={**item,'cost_record':cost}
+    public = {key: value for key, value in item.items() if key not in {"images", "codex_proxy_digest"}}
     return {**public, "image_count": len(item.get("images", [])), "cancellation_supported": item["status"] == "queued", "download_available": bool(item.get("report"))}
 
 
@@ -479,6 +490,10 @@ def preview(value: str):
         try: validate_app(store.get_json('files',value) or {})
         except ValueError as exc: return {'available':False,'can_build':False,'reason':str(exc),'source_invalid':True}
     built = store.get_json('built-files', value)
+    if built is None and item.get('runtime')=='app' and item['status'] not in {'queued','running'}:
+        from .app_build import reuse_build
+        if reuse_build(store,item,store.get_json('files',value) or {}):
+            built=store.get_json('built-files',value)
     if built is not None:
         return {**build_preview(built), 'kind':'built_application', 'can_build':True, 'build':store.get_json('application-build', value)}
     content = store.get_json("preview-files", value) if item["status"] == "running" else store.get_json("files", value)
@@ -507,7 +522,7 @@ def build_preview_status(value: str):
 
 @app.post('/api/tasks/{value}/build-preview')
 async def build_application_preview(value: str, body: BuildPreview):
-    from .app_build import build, validate_app
+    from .app_build import build, validate_app, reuse_build
     store = get_store()
     task = task_row(store, value)
     if task['status'] in {'queued','running'}:
@@ -522,14 +537,17 @@ async def build_application_preview(value: str, body: BuildPreview):
     state = store.get_json('application-build', value, {})
     if state.get('status') == 'ready' or state.get('request_id') == body.request_id:
         return state
+    cached=reuse_build(store,task,files)
+    if cached: return cached
     lock = store.key('application-build-lock')
     if not store.call('SET', lock, body.request_id, 'NX', 'EX', 210):
         raise HTTPException(409, 'An application build is already running.')
     try:
         from datetime import datetime, timezone
         day = datetime.now(timezone.utc).strftime('%Y-%m-%d')
-        if not store.meter('application-build:' + day, 4, 2*24*60*60):
-            raise HTTPException(429, 'The four-build daily allowance has been reached. No VM was started.')
+        limit=min(max(int(os.environ.get('SYNVIO_DAILY_BUILD_LIMIT','20')),1),100)
+        if not store.meter('application-build:' + day, limit, 2*24*60*60):
+            raise HTTPException(429, 'The daily build safety limit has been reached. No VM was started. Configure SYNVIO_DAILY_BUILD_LIMIT on the server.')
         store.put_json('application-build', value, {'status':'building','request_id':body.request_id,'deadline':time.time()+210})
         work = _finish_build(store,value,body.request_id,files,lock)
         if dispatch(work):
@@ -549,3 +567,6 @@ async def _finish_build(store,value,request_id,files,lock):
 
 from .codex_workspace import router as codex_router
 app.include_router(codex_router)
+
+from .codex_proxy import router as codex_proxy_router
+app.include_router(codex_proxy_router)

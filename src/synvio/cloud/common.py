@@ -90,7 +90,7 @@ def reasoning_for(model_id):
 
 
 def limits() -> dict:
-    return {"steps_per_attempt": 10, "tool_calls_per_task": 8, "attempts": 1, "model_test_runs": 2, "test_timeout_seconds": 30, "cancellation": "queued_tasks_only", "execution_backend": "vercel_sandbox"}
+    return {"steps_per_attempt": 40, "tool_calls_per_task": 32, "attempts": 1, "model_test_runs": 2, "test_timeout_seconds": 30, "cancellation": "queued_tasks_only", "execution_backend": "vercel_sandbox"}
 
 
 def safe_path(value: str) -> str:

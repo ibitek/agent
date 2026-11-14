@@ -23,6 +23,25 @@ class Engine:
         return {'estimated_cost_usd': '0.0'}
 
 
+def test_builder_can_finish_after_the_previous_ten_turn_limit():
+    store=Store()
+    actions=[{'action':'list'} for _ in range(11)]+[
+        {'action':'write','path':'index.html','content':'<h1>Built</h1>'},
+        {'action':'finish','text':'Saved'}]
+    build(store,{'id':'a','task':'Build a page','model':'fake'},{},Engine(actions))
+    assert store.result['report']['success']
+    assert store.result['report']['steps_used']==13
+
+
+def test_builder_preserves_files_before_execution_deadline():
+    import time
+    store=Store()
+    build(store,{'id':'a','task':'Edit a page','model':'fake','deadline':time.time()+2},
+        {'index.html':'<h1>Preserved</h1>'},Engine([]))
+    assert store.result['status']=='paused'
+    assert store.saved['files','a']['index.html']=='<h1>Preserved</h1>'
+
+
 def test_web_builder_saves_live_preview_without_claiming_browser_tests():
     store = Store()
     engine = Engine([{'action': 'write', 'path': 'index.html', 'content': '<h1>Hello</h1>'}, {'action': 'finish', 'text': 'Page created.'}])
