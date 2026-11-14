@@ -68,3 +68,24 @@ def test_builder_reattaches_image_after_checkpoint_restore():
         def summary(self):
             return {}
     build(Store(),{'id':'a','task':'Repair website','model':'fake','images':[PNG],'resume_checkpoint':{'messages':[{'role':'system','content':'system'},{'role':'user','content':'Repair'}]}},{'index.html':'<h1>Hello</h1>'},Engine())
+
+
+def test_truncated_json_is_not_executed_and_feedback_allows_recovery():
+    from synvio.cloud.web_builder import build
+    from test_web_builder import Store
+    class Engine:
+        def __init__(self):
+            self.calls = 0
+        def generate(self,messages,**kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                return {'content':'{"action":"write","path":"index.html","content":"partial'}
+            assert 'truncated JSON' in str([m.content for m in messages])
+            return {'content':'{"action":"write","path":"index.html","content":"<h1>Complete</h1>"}' if self.calls == 2 else '{"action":"finish","text":"Saved"}'}
+        def summary(self):
+            return {}
+    store = Store()
+    build(store,{'id':'a','task':'Build site','model':'fake'}, {},Engine())
+    assert store.saved['files','a']['index.html'] == '<h1>Complete</h1>'
+    assert store.result['report']['success']
+    assert any(item['event']=='model_response_invalid' for item in store.events)
