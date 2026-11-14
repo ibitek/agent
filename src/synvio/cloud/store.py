@@ -79,9 +79,12 @@ class Store:
 
     def event(self, task_id, payload):
         value = {**payload, "created_at": time.time()}
-        self.call("RPUSH", self.key("events", task_id), json.dumps(value, ensure_ascii=False, default=str))
-        self.call("EXPIRE", self.key("events", task_id), RETENTION)
-        self.fields(task_id, updated_at=time.time())
+        self.call("EVAL", """
+redis.call('RPUSH',KEYS[1],ARGV[1])
+redis.call('EXPIRE',KEYS[1],ARGV[2])
+redis.call('HSET',KEYS[2],'updated_at',ARGV[3])
+return 1
+""",2,self.key('events',task_id),self.key('task',task_id),json.dumps(value,ensure_ascii=False,default=str),RETENTION,json.dumps(value['created_at']))
 
     def events(self, task_id, after=0):
         values = self.call("LRANGE", self.key("events", task_id), after, after + 499) or []
@@ -89,7 +92,10 @@ class Store:
 
     def history(self, limit):
         ids = self.call("ZREVRANGE", self.key("history"), 0, limit - 1) or []
-        return [task for task_id in ids if (task := self.get(task_id))]
+        if not ids: return []
+        rows=self.call('EVAL',"local rows={};for i,key in ipairs(KEYS) do rows[i]=redis.call('HGETALL',key) end;return rows",len(ids),
+                       *(self.key('task',value) for value in ids)) or []
+        return [{row[i]:json.loads(row[i+1]) for i in range(0,len(row),2)} for row in rows if row]
 
     def put_json(self, kind, task_id, value, expiry=RETENTION):
         args = ["SET", self.key(kind, task_id), json.dumps(value, ensure_ascii=False)]

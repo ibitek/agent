@@ -70,6 +70,20 @@ def test_default_request_limit_is_twenty_service_cents():
         assert request.model_budget_usd*1.3==pytest.approx(.2)
 
 
+def test_history_and_event_storage_use_bounded_round_trips(client,monkeypatch):
+    login(client)
+    value=create(client).json()['id']
+    store=cloud.get_store();actual=store.call;commands=[]
+    def observed(*args):
+        commands.append(args[0]);return actual(*args)
+    monkeypatch.setattr(store,'call',observed)
+    store.event(value,{'event':'test_event'})
+    assert commands==['EVAL']
+    commands.clear()
+    assert store.history(50)[0]['id']==value
+    assert commands==['ZREVRANGE','EVAL']
+
+
 def test_private_routes_require_login_before_models_or_files(client):
     for path in ["/api/tasks", "/api/models", "/api/workspaces", "/api/health"]:
         assert client.get(path).status_code == 401

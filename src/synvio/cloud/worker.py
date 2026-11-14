@@ -101,6 +101,8 @@ def run(task_id):
         store.event(task_id, {"event": "task_finished", "status": status, "success": report.success})
         return 0
     except Exception as exc:
+        from .interruptions import pause_details
+        pause = pause_details(exc)
         if baseline is not None:
             try:
                 preserved = store.get_json("files", task_id)
@@ -111,7 +113,7 @@ def run(task_id):
                     "attempt_details": [{"final_answer": public_error(exc)}]})
             except Exception:
                 pass  # An expired lease cannot publish a revision.
-        store.fields(task_id, status="paused", error=public_error(exc), updated_at=time.time())
+        store.fields(task_id, status="paused", error=public_error(exc), updated_at=time.time(), **pause)
         store.event(task_id, {"event": "task_error", "error": public_error(exc)})
         return 1
     finally:

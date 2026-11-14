@@ -51,3 +51,11 @@
 .live-work-progress{margin:14px 0;padding:14px;border:1px solid #2d3b49;border-radius:12px;background:#141c24}.live-work-progress>strong{font-size:12px;color:#a7c6df}.live-work-progress>div{display:flex;gap:9px;margin-top:10px;font-size:12px;color:#c5d2de;animation:message-in .22s ease-out}.live-work-progress small{display:block;color:#7e95ab;font-family:monospace;overflow-wrap:anywhere}.activity-dot{width:5px;height:5px;border-radius:50%;background:#62b4ff;margin-top:5px;flex-shrink:0}.confirm-work-button{margin-top:12px;border:1px solid #408ed1;background:#17314b;color:#ddecff;padding:9px 14px;border-radius:9px;cursor:pointer}.confirm-work-button:hover{background:#244963}
 
 .work-error{color:#f0a7ad;font-size:13px;border-left:2px solid #9b4c58;padding:8px 12px;line-height:1.6}
+
+/* Animate real activity, without delaying execution. */
+.live-work-progress>div{animation:activity-arrive .22s ease-out}
+.work-pause-note{border:1px solid var(--line);border-left:2px solid var(--accent-border);background:var(--panel);border-radius:9px;padding:12px 14px;color:var(--soft);animation:activity-arrive .22s ease-out}
+.resume-work button{transition:background .18s,border-color .18s,opacity .18s,transform .18s}
+.resume-work button:not(:disabled):hover{transform:translateY(-1px);border-color:var(--accent-border)}
+@keyframes activity-arrive{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+@media(prefers-reduced-motion:reduce){.live-work-progress>div,.work-pause-note{animation:none}.resume-work button{transition:none;transform:none!important}}

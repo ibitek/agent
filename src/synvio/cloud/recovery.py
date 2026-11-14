@@ -29,6 +29,8 @@ def resume(value:str,body:Resume):
         task=task_row(store,value)
         if task.get('operation') in {'manual_edit','import'}: raise HTTPException(409,'Retry the original file or import operation. This operation must not start an AI worker.')
         if task['status'] not in {'failed','paused','cancelled'}: raise HTTPException(409,'Only interrupted work can be resumed.')
+        if task.get('retry_after',0)>time.time():
+            raise HTTPException(429,'This service is cooling down. Saved work is preserved; wait before resuming.')
         if task.get('resumed_by'):
             child=store.get(task['resumed_by'])
             if not child: raise HTTPException(409,'The continuation has expired. Open the latest saved project.')

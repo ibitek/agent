@@ -250,8 +250,8 @@ def wallet():
             'bonus_max_percent':20,'bonus_tiers':[{'deposit_usd':amount,'bonus_percent':bonus} for amount,bonus in [('5',2),('12.50',5),('25',10),('50',15),('100',20)]], 'usage_window':'Latest 50 records per source and latest build per run. Estimates at current service rates, not an invoice.'}
 
 
-def task_row(store, value):
-    item = store.get(task_id(value))
+def task_row(store, value, item=None):
+    item = item if item is not None else store.get(task_id(value))
     if not item:
         raise HTTPException(404, "Run not found.")
     if item["status"] in {"queued", "running"} and time.time() > item["deadline"]:
@@ -394,7 +394,7 @@ def history(limit: int = Query(default=50, ge=1, le=200)):
     if not storage_ready():
         return {"items": []}
     store = get_store()
-    return {"items": [task_row(store, item["id"]) for item in store.history(limit)]}
+    return {"items": [task_row(store, item["id"], item) for item in store.history(limit)]}
 
 
 @app.get("/api/tasks/{value}")

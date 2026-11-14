@@ -25,7 +25,7 @@ class Engine:
 
 def test_builder_can_finish_after_the_previous_ten_turn_limit():
     store=Store()
-    actions=[{'action':'list'} for _ in range(11)]+[
+    actions=[{'action':'write','path':f'note-{i}.txt','content':'saved'} for i in range(11)]+[
         {'action':'write','path':'index.html','content':'<h1>Built</h1>'},
         {'action':'finish','text':'Saved'}]
     build(store,{'id':'a','task':'Build a page','model':'fake'},{},Engine(actions))

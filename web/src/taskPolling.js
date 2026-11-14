@@ -15,9 +15,10 @@ export function mergeTasks(current, incoming) {
 
 export function watchTask(id, { getJSON, onSnapshot, schedule = setTimeout, cancel = clearTimeout }) {
   const controller = new AbortController()
-  let timer, cursor = 0
+  let timer, cursor = 0, quiet = 0, failures = 0
   const events = new Map()
   async function poll() {
+    const previousCursor = cursor
     try {
       // Read status first, then drain the log; a terminal status must not stop log fetching.
       const task = await getJSON(`/api/tasks/${id}`, { signal: controller.signal })
@@ -34,11 +35,14 @@ export function watchTask(id, { getJSON, onSnapshot, schedule = setTimeout, canc
       const items = [...events.values()].sort((a, b) => a.sequence - b.sequence)
       const complete = TERMINAL.has(task.status) && items.some((event) => FINISHED.has(event.event))
       onSnapshot({ task, events: items, complete })
+      failures = 0
+      quiet = cursor === previousCursor ? Math.min(quiet + 1, 4) : 0
       if (complete) return
     } catch {
       // Keep the last confirmed snapshot and retry; network errors are not task failures.
+      failures = Math.min(failures + 1, 4)
     }
-    if (!controller.signal.aborted) timer = schedule(poll, 900)
+    if (!controller.signal.aborted) timer = schedule(poll, failures ? Math.min(15000, 1500 * 2 ** failures) : 1200 + quiet * 900)
   }
   timer = schedule(poll, 0)
   return () => { controller.abort(); cancel(timer) }

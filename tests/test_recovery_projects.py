@@ -25,6 +25,17 @@ def seeded(client,status='paused'):
     return store,value
 
 
+def test_rate_limit_cooldown_blocks_restart_before_allocating_another_task(client):
+    from synvio.cloud.interruptions import pause_details
+    store,value=seeded(client)
+    details=pause_details(RuntimeError('exceeded retry limit, last status: 429 Too Many Requests'))
+    store.fields(value,**details)
+    response=client.post(f'/api/tasks/{value}/resume',json={'request_id':'4'*32})
+    assert response.status_code==429
+    assert len(store.history(10))==1
+    assert store.get_json('files',value)['index.html']=='<h1>Saved</h1>'
+
+
 def test_resume_preserves_checkpoint_and_is_idempotent(client):
     store,value=seeded(client)
     checkpoint={'version':1,'messages':[{'role':'user','content':'Original request'}],'pending_action':{'action':'finish','text':'Done'},'changed':['index.html']}
