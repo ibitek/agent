@@ -105,6 +105,14 @@ def build(store, task, baseline, engine):
         if kind in {'read','write','patch','delete'}:
             safe_path(action.get('path'))
         if kind == 'finish':
+            if not application and not source_only:
+                check = build_preview(files)
+                if not check['available']:
+                    output = 'Actual preview source check failed: '+check.get('reason','Invalid preview')+'. Fix the local references or missing assets before finishing; preserve existing work.'
+                    store.event(task['id'],{'event':'preview_source_check','success':False,'error':check.get('reason')})
+                    messages.extend([Message(role=Role.ASSISTANT,content=json.dumps(action)),Message(role=Role.USER,content=output)])
+                    checkpoint()
+                    continue
             if application:
                 from .app_build import validate_app
                 try:

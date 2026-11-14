@@ -51,3 +51,17 @@ def test_repeated_reads_without_progress_pause_instead_of_looping():
     assert store.result['status']=='paused'
     assert store.result['report']['reason']=='no_progress'
     assert store.saved['files','a']['index.html']=='<h1>Saved</h1>'
+
+
+def test_finish_requires_local_asset_references_to_resolve():
+    store=Store()
+    build(store,{'id':'a','task':'Build a site','model':'fake'},{},Engine([
+        {'action':'batch','actions':[
+            {'action':'write','path':'index.html','content':'<link rel="stylesheet" href="styles.css"><h1>Orbit</h1>'},
+            {'action':'write','path':'src/styles.css','content':'h1{color:blue}'}]},
+        {'action':'finish','text':'Ready'},
+        {'action':'patch','path':'index.html','old':'href="styles.css"','new':'href="src/styles.css"'},
+        {'action':'finish','text':'Saved with matching paths'}]))
+    assert store.result['status']=='completed'
+    assert store.result['report']['steps_used']==4
+    assert any(e['event']=='preview_source_check' for e in store.events)
