@@ -139,7 +139,17 @@ async def run_async(store,task,baseline):
             await box.run_command('python3',['-c',COLLECT],cwd=ROOT,env={},capture_output=True,check=True,kill_after=10)
             async with box.fs.open('/vercel/sandbox/source.json','rb') as reader:
                 raw=await reader.read(MAX_PROJECT_BYTES+1)
-            files=validate_files(json.loads(raw))
+            candidate=validate_files(json.loads(raw))
+            try:
+                for path,before in baseline.items():
+                    check_replacement(path,before,candidate.get(path,''),task['task'])
+            except ValueError:
+                store.put_json('candidate-files',task['id'],candidate)
+                events.error='A regressive replacement was rejected. The working source was preserved.'
+                return
+            if events.error.startswith('A regressive replacement was rejected.'):
+                events.error=''
+            files=candidate
             store.checkpoint(task['id'],{'version':2,'codex_cli':True,'codex_thread':events.thread or thread},files)
             async with box.fs.open('/vercel/sandbox/codex-state.json','rb') as reader:
                 state=await reader.read(MAX_PROJECT_BYTES+1)

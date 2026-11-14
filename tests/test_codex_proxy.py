@@ -106,3 +106,16 @@ def test_cli_config_and_real_event_shapes_do_not_invent_progress():
     for item in lines: events.write(json.dumps(item)+'\n')
     assert events.thread=='thread_test' and events.dirty and events.answer=='Done'
     assert store.events[0]['output']=='actual error' and store.events[0]['exit_code']==1
+
+
+def test_preflight_reloads_cost_under_the_inference_lock(monkeypatch):
+    store=Store();monkeypatch.setattr(proxy,'Store',lambda:store)
+    class Request:
+        headers={'authorization':'Bearer '+TOKEN}
+        async def body(self):
+            # Simulate a prior inference completing during a slow body upload.
+            store.task['cost_record']={'estimated_cost_usd':'.49','calls':[]}
+            return json.dumps({'model':store.task['model'],'input':'hello'}).encode()
+    with pytest.raises(HTTPException) as caught:
+        asyncio.run(proxy.response(ID,Request()))
+    assert caught.value.status_code==429 and not store.lock
