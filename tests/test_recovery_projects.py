@@ -40,7 +40,7 @@ def test_resume_preserves_source_and_checkpoint_even_if_previous_start_was_rejec
     store,value=seeded(client)
     checkpoint={'messages':[{'role':'system','content':'system'},{'role':'user','content':'request'}],
                 'pending_action':{'action':'finish','text':'Saved'}}
-    store.fields(value,resume_checkpoint=checkpoint)
+    store.fields(value,runtime="web",resume_checkpoint=checkpoint)
     result=client.post(f'/api/tasks/{value}/resume',json={'request_id':'4'*32})
     assert result.status_code==200
     child=result.json()['task']['id']
