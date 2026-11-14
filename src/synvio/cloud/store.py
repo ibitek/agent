@@ -164,6 +164,6 @@ return 1
 
     def allow_paid_request(self):
         day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        limit = min(max(int(os.environ.get("SYNVIO_DAILY_REQUEST_LIMIT", "10")), 1), 100)
+        limit = min(max(int(os.environ.get("SYNVIO_DAILY_REQUEST_LIMIT", "100")), 1), 1000)
         # Fresh counter version excludes the old routing+worker double charges.
         return self.meter(f"paid-v2:{day}", limit, 2 * 24 * 60 * 60)

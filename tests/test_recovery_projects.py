@@ -36,6 +36,18 @@ def test_rate_limit_cooldown_blocks_restart_before_allocating_another_task(clien
     assert store.get_json('files',value)['index.html']=='<h1>Saved</h1>'
 
 
+def test_resume_preserves_source_and_checkpoint_even_if_previous_start_was_rejected(client):
+    store,value=seeded(client)
+    checkpoint={'messages':[{'role':'system','content':'system'},{'role':'user','content':'request'}],
+                'pending_action':{'action':'finish','text':'Saved'}}
+    store.fields(value,resume_checkpoint=checkpoint)
+    result=client.post(f'/api/tasks/{value}/resume',json={'request_id':'4'*32})
+    assert result.status_code==200
+    child=result.json()['task']['id']
+    assert store.get_json('files',child)==store.get_json('files',value)
+    assert store.get(child)['resume_checkpoint']==checkpoint
+
+
 def test_resume_preserves_checkpoint_and_is_idempotent(client):
     store,value=seeded(client)
     checkpoint={'version':1,'messages':[{'role':'user','content':'Original request'}],'pending_action':{'action':'finish','text':'Done'},'changed':['index.html']}

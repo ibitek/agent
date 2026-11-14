@@ -308,6 +308,12 @@ def create_task(body: Task):
                 followup_context=context_for(store, parent) if parent else [])
     if not store.create(item):
         raise HTTPException(429, "This project already has an active run. Wait for it to finish.")
+    if parent:
+        # Even a quota-rejected start must retain a usable source revision.
+        previous_files=store.get_json('files',parent['id'])
+        if previous_files is not None:
+            store.put_json('files',value,previous_files)
+            store.put_json('preview-files',value,previous_files)
     if parent and store.get_json("thread-head", item["thread_id"], parent["id"]) != parent["id"]:
         store.fields(value, status="cancelled", error="A newer conversation version was saved in the meantime.")
         store.release(value)
