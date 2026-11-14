@@ -54,6 +54,22 @@ def create(client, text="Create calculator and tests"):
     return client.post("/api/tasks", json={"task": text, "workspace": "project", "model_id": "openai:low"})
 
 
+@pytest.mark.parametrize('budget',[None,2,12.5])
+def test_task_preserves_unlimited_or_custom_budget_without_starting_paid_work(client,budget):
+    login(client)
+    response=client.post('/api/tasks',json={'task':'Build a page','runtime':'web','model_budget_usd':budget})
+    assert response.status_code==202
+    task=client.get('/api/tasks/'+response.json()['id']).json()
+    assert task['model_budget_usd']==budget and task['status']=='queued'
+
+
+def test_default_request_limit_is_twenty_service_cents():
+    from synvio.cloud.assistant import Send
+    from synvio.cloud.recovery import Resume
+    for request in [cloud.Task(task='Build a page'),Send(request_id='a'*32,message='Build a page'),Resume(request_id='a'*32)]:
+        assert request.model_budget_usd*1.3==pytest.approx(.2)
+
+
 def test_private_routes_require_login_before_models_or_files(client):
     for path in ["/api/tasks", "/api/models", "/api/workspaces", "/api/health"]:
         assert client.get(path).status_code == 401

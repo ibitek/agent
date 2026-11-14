@@ -49,14 +49,15 @@ class ObservedClient:
 
 
 def amount(value):
+    if value is None: return None
     number = Decimal(str(value))
-    if not number.is_finite() or not Decimal("0") < number <= Decimal("1"):
-        raise ValueError("The AI budget must be greater than zero and at most 1 USD.")
+    if not number.is_finite() or not Decimal("0") < number:
+        raise ValueError("The AI budget must be a finite positive amount, or null for Unlimited.")
     return number
 
 
 def usd(value):
-    return str(value.quantize(PRECISION, rounding=ROUND_CEILING))
+    return None if value is None else str(value.quantize(PRECISION, rounding=ROUND_CEILING))
 
 
 def count(value):
@@ -148,7 +149,7 @@ class MeteredEngine:
         input_upper = len(json.dumps(payload, ensure_ascii=False).encode("utf-8")) + 1024 + 32 * len(payload) + image_tokens
         rate_in, _, rate_out = RATES[model]
         reservation = (input_upper * rate_in + output_limit * rate_out) / MILLION
-        if self.spent + self.reserved_unknown + reservation > self.budget:
+        if self.budget is not None and self.spent + self.reserved_unknown + reservation > self.budget:
             raise BudgetExceeded("The AI budget has been reached. No further model call was sent.")
         entry = {"sequence": len(self.calls) + 1, "model": model, "state": "reserved", "reserved_usd": usd(reservation)}
         self.calls.append(entry)

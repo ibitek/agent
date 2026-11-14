@@ -33,7 +33,7 @@ was done and any unverified behavior. Keep context and answers short. At most
 
 class Start(BaseModel):
     model_id: str = "openai:low"
-    model_budget_usd: float = Field(default=0.10, gt=0, le=1, allow_inf_nan=False)
+    model_budget_usd: float | None = Field(default=0.20 / 1.30, gt=0, allow_inf_nan=False)
     workspace_name: str = Field(min_length=1, max_length=120)
 
 

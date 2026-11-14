@@ -58,6 +58,24 @@ def test_ambiguous_timeout_retains_reservation_and_never_retries():
     assert engine.calls == 1
 
 
+def test_unlimited_has_no_cost_ceiling_but_keeps_usage_and_ambiguity_guards():
+    engine=FakeEngine()
+    meter=MeteredEngine(engine,'gpt-4o-mini',None)
+    meter.spent=Decimal('1000')
+    meter.generate(MESSAGES,model='gpt-4o-mini')
+    assert engine.calls==1
+    assert meter.summary()['budget_usd'] is None
+    assert meter.summary()['service_budget_usd'] is None
+    assert Decimal(meter.summary()['estimated_cost_usd'])>1000
+    failed=MeteredEngine(FakeEngine(error=TimeoutError()),'gpt-4o-mini',None)
+    with pytest.raises(TimeoutError): failed.generate(MESSAGES,model='gpt-4o-mini')
+    with pytest.raises(BudgetExceeded): failed.generate(MESSAGES,model='gpt-4o-mini')
+
+
+def test_custom_budget_above_two_dollars_is_supported():
+    assert MeteredEngine(FakeEngine(),'gpt-4o-mini','12.50').summary()['budget_usd']=='12.500000000'
+
+
 def test_storage_failure_prevents_inference():
     def offline(event):
         raise RuntimeError("storage offline")

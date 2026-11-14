@@ -44,6 +44,13 @@ def test_browser_codex_uses_the_same_scoped_auth():
     assert proxy.authorize(store,ID,TOKEN)['id']==ID
 
 
+def test_unlimited_proxy_reports_no_artificial_budget():
+    task={**Store().task,'model_budget_usd':None}
+    result=proxy.record(task,[],Decimal('123.45'),Decimal(0))
+    assert result['budget_usd'] is None and result['service_budget_usd'] is None
+    assert result['estimated_cost_usd']=='123.450000000'
+
+
 def test_fixed_model_and_bounded_output_even_if_payload_requests_more():
     task=Store().task
     data,cost=proxy.estimate(task,{'model':task['model'],'input':'hello','max_output_tokens':90000,'service_tier':'priority'})

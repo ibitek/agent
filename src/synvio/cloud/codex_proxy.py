@@ -79,7 +79,7 @@ def estimate(task,payload):
 
 
 def record(task,calls,spent,reserved):
-    budget=Decimal(str(task['model_budget_usd']))
+    budget=None if task['model_budget_usd'] is None else Decimal(str(task['model_budget_usd']))
     return {'event':'model_cost','currency':'USD','scope':'model_and_tools','rate_version':'openai-standard-2026-11-14',
         'budget_usd':usd(budget),'service_budget_usd':service_amount(budget),'estimated_cost_usd':usd(spent),
         'service_estimated_cost_usd':service_amount(spent),'unresolved_reservation_usd':usd(reserved),
@@ -110,7 +110,7 @@ async def response(value:str,request:Request):
         spent=Decimal(previous.get('estimated_cost_usd','0'))
         unknown=Decimal(previous.get('unresolved_reservation_usd','0'))
         calls=list(previous.get('calls') or [])
-        if unknown>0 or any(c.get('reservation_exceeded') for c in calls) or spent+reserve>Decimal(str(task['model_budget_usd'])):
+        if unknown>0 or any(c.get('reservation_exceeded') for c in calls) or (task['model_budget_usd'] is not None and spent+reserve>Decimal(str(task['model_budget_usd']))):
             raise HTTPException(429,'Task spending limit reached, or previous provider usage is unresolved. No model call was sent.')
         entry={'sequence':len(calls)+1,'model':task['model'],'state':'reserved','reserved_usd':usd(reserve)}
         calls.append(entry)

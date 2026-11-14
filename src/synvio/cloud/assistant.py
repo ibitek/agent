@@ -43,7 +43,7 @@ class Send(BaseModel):
     parent_task_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
     message: str = Field(min_length=1, max_length=10000)
     model_id: str = "openai:low"
-    model_budget_usd: float = Field(default=0.10, gt=0, le=1, allow_inf_nan=False)
+    model_budget_usd: float | None = Field(default=0.20 / 1.30, gt=0, allow_inf_nan=False)
 
 
 def confirmation(message):
@@ -296,8 +296,8 @@ async def send(body: Send):
                 kind = "setup_required"
             else:
                 spent = Decimal(route_cost["estimated_cost_usd"]) if route_cost else Decimal(0)
-                remaining = Decimal(str(body.model_budget_usd)) - spent
-                if remaining <= 0:
+                remaining = None if body.model_budget_usd is None else Decimal(str(body.model_budget_usd)) - spent
+                if remaining is not None and remaining <= 0:
                     raise HTTPException(409, "The model budget was used while understanding your request. No implementation run was started.")
                 instruction = action['task'] if confirmed or retry else body.message
                 parent_id = conversation.get('last_task_id')
@@ -308,7 +308,7 @@ async def send(body: Send):
                     if not prior or prior['status'] not in {'failed', 'cancelled'}:
                         break
                     parent_id = prior.get('parent_id')
-                created = create_task(Task(images=body.images, project_id=conversation.get("project_id"), runtime=runtime, operation="verify" if kind == "verify" else "edit", task=instruction, parent_id=parent_id, model_id=body.model_id, model_budget_usd=float(remaining)))
+                created = create_task(Task(images=body.images, project_id=conversation.get("project_id"), runtime=runtime, operation="verify" if kind == "verify" else "edit", task=instruction, parent_id=parent_id, model_id=body.model_id, model_budget_usd=None if remaining is None else float(remaining)))
                 if route_cost is not None:
                     store.fields(created['id'], request_quota_reserved=True)
                 conversation["last_task_id"] = created["id"]

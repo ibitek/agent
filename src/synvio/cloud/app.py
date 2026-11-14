@@ -60,7 +60,7 @@ class Message(BaseModel):
 
 
 class Chat(BaseModel):
-    model_budget_usd: float = Field(default=0.01, gt=0, le=1, allow_inf_nan=False)
+    model_budget_usd: float | None = Field(default=0.20 / 1.30, gt=0, allow_inf_nan=False)
     message: str = Field(min_length=1, max_length=4000)
     model_id: str = "openai:low"
     history: list[Message] = Field(default_factory=list, max_length=12)
@@ -75,7 +75,7 @@ class Task(BaseModel):
     runtime: Literal["python", "web", "app", "source"] = "python"
     operation: Literal["edit", "verify"] = "edit"
     parent_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
-    model_budget_usd: float = Field(default=0.10, gt=0, le=1, allow_inf_nan=False)
+    model_budget_usd: float | None = Field(default=0.20 / 1.30, gt=0, allow_inf_nan=False)
     task: str = Field(min_length=1, max_length=10000)
     workspace: str = PROJECT
     model_id: str = "openai:low"

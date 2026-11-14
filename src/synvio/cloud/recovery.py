@@ -10,7 +10,7 @@ router=APIRouter(prefix='/api/tasks')
 
 class Resume(BaseModel):
     request_id: str=Field(pattern=r'^[a-f0-9]{32}$')
-    model_budget_usd: float=Field(default=.10,gt=0,le=1,allow_inf_nan=False)
+    model_budget_usd: float | None = Field(default=0.20 / 1.30, gt=0, allow_inf_nan=False)
     acknowledge_unknown_cost: bool=False
     conversation_id: str|None=Field(default=None,pattern=r'^[a-f0-9]{32}$')
 
@@ -32,7 +32,7 @@ def resume(value:str,body:Resume):
         if task.get('resumed_by'):
             child=store.get(task['resumed_by'])
             if not child: raise HTTPException(409,'The continuation has expired. Open the latest saved project.')
-            if Decimal(str(child['model_budget_usd']))!=Decimal(str(body.model_budget_usd)): raise HTTPException(409,'A continuation already exists with a different spending cap. Open or cancel that run before starting another.')
+            if child['model_budget_usd']!=body.model_budget_usd: raise HTTPException(409,'A continuation already exists with a different spending cap. Open or cancel that run before starting another.')
             return {'source_id':value,'task':{'id':child['id'],'status':child['status']},'additional_model_cap_usd':child['model_budget_usd']}
         cost=task.get('cost_record') or {}
         if Decimal(cost.get('unresolved_reservation_usd','0'))>0 and not body.acknowledge_unknown_cost:

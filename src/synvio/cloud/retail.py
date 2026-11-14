@@ -6,6 +6,7 @@ COMPUTE_PER_MINUTE = Decimal('0.005')
 
 
 def service_amount(value):
+    if value is None: return None
     return str((Decimal(str(value)) * FACTOR).quantize(Decimal('0.000000001'), rounding=ROUND_CEILING))
 
 
