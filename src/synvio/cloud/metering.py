@@ -122,10 +122,17 @@ class MeteredEngine:
                 "invoice_verified": False, "calls": self.calls}
 
     def generate(self, messages, *, model, max_tokens=1024, **kwargs):
-        if self.blocked or model != self.model or kwargs.keys() - {"temperature", "response_format"}:
+        if self.blocked or model != self.model or kwargs.keys() - {"temperature", "response_format", "native_items"}:
             raise BudgetExceeded("Call blocked: the model, options or previous cost require review.")
         if "response_format" in kwargs and kwargs["response_format"] != {"type": "json_object"}:
             raise BudgetExceeded("Only the fixed JSON response format is supported by this budget guard.")
+        native_size = 0
+        if 'native_items' in kwargs:
+            from .native_tools import TOOL
+            if (not getattr(self.engine, 'supports_native_tools', False) or 'response_format' in kwargs
+                    or not isinstance(kwargs['native_items'], list)):
+                raise BudgetExceeded('Native tools are not supported by this engine or options.')
+            native_size = len(json.dumps({'tools': [TOOL], 'input': kwargs['native_items']}, ensure_ascii=False).encode('utf-8'))
         messages = list(messages)
         payload = []
         image_tokens = 0
@@ -146,7 +153,7 @@ class MeteredEngine:
         output_limit = count(max_tokens)
         if not 1 <= output_limit <= 16384:
             raise BudgetExceeded("Invalid response limit.")
-        input_upper = len(json.dumps(payload, ensure_ascii=False).encode("utf-8")) + 1024 + 32 * len(payload) + image_tokens
+        input_upper = len(json.dumps(payload, ensure_ascii=False).encode("utf-8")) + 1024 + 32 * len(payload) + image_tokens + native_size
         rate_in, _, rate_out = RATES[model]
         reservation = (input_upper * rate_in + output_limit * rate_out) / MILLION
         if self.budget is not None and self.spent + self.reserved_unknown + reservation > self.budget:
@@ -176,6 +183,8 @@ class MeteredEngine:
         self.reserved_unknown -= reservation
         self.spent += cost
         entry.update(state="recorded", estimated_cost_usd=usd(cost), **usage)
+        if result.get('response_id'):
+            entry['provider_response_id'] = result['response_id']
         if self.observed:
             entry["provider_response_id"] = self.observed.response_id
         # Stop further calls if provider usage contradicts the preflight bound.

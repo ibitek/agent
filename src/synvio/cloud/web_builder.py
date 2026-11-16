@@ -7,6 +7,7 @@ from .common import safe_path, validate_files, limits
 from .followups import prompt_for
 from .preview import build_preview
 from .file_actions import apply, operations, compact_action, UnsafeFileOperation
+from .native_tools import NativeSession, NativeProtocolError, prompt as native_prompt
 import hashlib
 
 SYSTEM = '''Build the requested static website using plain HTML, CSS and JavaScript.
@@ -54,6 +55,9 @@ def build(store, task, baseline, engine):
     messages = [Message(role=Role.SYSTEM, content=SOURCE_SYSTEM if source_only else APP_SYSTEM if application else SYSTEM), Message(role=Role.USER, content=prompt_for(task))]
     if saved.get("messages"):
         messages = [Message(role=Role(item["role"]),content=item["content"]) for item in saved["messages"]]
+    native = NativeSession(saved.get('native_tool_state')) if getattr(engine, 'supports_native_tools', False) else None
+    if native:
+        messages[0].content = native_prompt(messages[0].content)
     # Reattach once from the durable task, including after checkpoint recovery.
     if task.get("images"):
         next(m for m in messages if m.role == Role.USER).images = task["images"]
@@ -72,7 +76,8 @@ def build(store, task, baseline, engine):
         messages = [Message(role=Role.SYSTEM,content=system), request_message, Message(role=Role.USER,content=state), *recent]
     def checkpoint(pending_action=None):
         if hasattr(store, "checkpoint"):
-            store.checkpoint(task["id"], {"version":1,"messages":[{"role":str(m.role.value),"content":m.content} for m in messages],"changed":changed,"pending_action":pending_action}, files)
+            store.checkpoint(task["id"], {"version":2,"messages":[{"role":str(m.role.value),"content":m.content} for m in messages],"changed":changed,"pending_action":pending_action,
+                **({'native_tool_state': native.state} if native else {})}, files)
     answer = "The turn limit was reached. Saved changes remain available for inspection."
     finished = False
     invalid_responses = 0
@@ -87,9 +92,20 @@ def build(store, task, baseline, engine):
         if pending is not None:
             action, pending = pending, None
         else:
-            result = engine.generate(messages, model=task['model'], max_tokens=6000, temperature=0.2, response_format={"type": "json_object"})
+            options = {'native_items': native.input_items()} if native else {'response_format': {"type": "json_object"}}
+            result = engine.generate(messages, model=task['model'], max_tokens=6000, temperature=0.2, **options)
+            if native:
+                try:
+                    action = native.accept(result)
+                except NativeProtocolError as exc:
+                    answer = str(exc) + ' Saved source is preserved. No automatic retry was sent.'
+                    stop_reason = 'native_protocol_error'
+                    store.event(task['id'], {'event': 'model_response_invalid', 'reason': 'native_protocol_error'})
+                    checkpoint()
+                    break
             try:
-                action = json.loads(result.get('content', ''))
+                if not native:
+                    action = json.loads(result.get('content', ''))
             except json.JSONDecodeError:
                 invalid_responses += 1
                 # The completed inference is already metered. Never execute a
@@ -115,11 +131,13 @@ def build(store, task, baseline, engine):
                     if failures[reason]>=2:
                         answer='Work paused after the same preview validation failed twice. Saved source is preserved; no more automatic repair calls were made.'
                         stop_reason='validation_stalled'
+                        if native: native.complete('Preview validation failed: ' + reason)
                         checkpoint()
                         break
                     output = 'Actual preview source check failed: '+reason+'. Read index.html and patch ONLY the broken href/src to the correct existing file path. Do not rewrite CSS, JavaScript, components or page content to fix a missing asset. Existing files: '+json.dumps(sorted(files))
                     store.event(task['id'],{'event':'preview_source_check','success':False,'error':check.get('reason')})
                     messages.extend([Message(role=Role.ASSISTANT,content=json.dumps(action)),Message(role=Role.USER,content=output)])
+                    if native: native.complete(output)
                     checkpoint()
                     continue
             if application:
@@ -130,10 +148,12 @@ def build(store, task, baseline, engine):
                     output='Actual application source check failed: '+str(exc)+'. Fix the saved source before finishing.'
                     store.event(task['id'],{'event':'application_source_check','success':False,'error':str(exc)})
                     messages.extend([Message(role=Role.ASSISTANT,content=json.dumps(action)),Message(role=Role.USER,content=output)])
+                    if native: native.complete(output)
                     checkpoint()
                     continue
             answer = str(action.get('text', 'Files saved.'))[:4000]
             finished = True
+            if native: native.complete('Source validation accepted. Run finished; no browser tests were performed.')
             checkpoint(action)
             break
         try:
@@ -148,6 +168,7 @@ def build(store, task, baseline, engine):
                 answer = 'Work paused because the same operation repeated without progress. Saved files are preserved.'
                 stop_reason = 'no_progress'
                 store.event(task['id'], {'event':'work_paused','reason':'no_progress','text':answer})
+                if native: native.complete('Operation was not executed: repeated without progress.')
                 checkpoint()
                 break
             tool_calls += count
@@ -169,9 +190,11 @@ def build(store, task, baseline, engine):
             if failures[reason]>=2:
                 answer='Work paused after a repeated invalid edit. Saved source is preserved; no more automatic repair calls were made.'
                 stop_reason='validation_stalled'
+                if native: native.complete(output)
                 checkpoint()
                 break
         messages.extend([Message(role=Role.ASSISTANT, content=compact_action(action)), Message(role=Role.USER, content='Untrusted tool result:\n' + output)])
+        if native: native.complete('Untrusted tool result:\n' + output)
         checkpoint()
     preview = build_preview(files)
     success = finished and bool(changed) and preview['available']
