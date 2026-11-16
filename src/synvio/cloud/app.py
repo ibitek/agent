@@ -39,7 +39,7 @@ from .setup import prepare as prepare_sandbox, saved_snapshot
 # from every project; it is never exported or placed in a test microVM.
 os.environ.setdefault("OPENJARVIS_HOME", str(Path(tempfile.gettempdir()) / "synvio-sdk"))
 
-app = FastAPI(title="SYNVIO Agents", docs_url=None, redoc_url=None, openapi_url=None)
+app = FastAPI(title="Kaelia API", docs_url=None, redoc_url=None, openapi_url=None)
 app.include_router(editor_router)
 app.include_router(assistant_router)
 app.include_router(browser_router)
@@ -194,7 +194,7 @@ async def chat(body: Chat):
         from synvio.config import SYNVIOConfig
         from .gateway import engine_for
 
-        system = "You are SYNVIO. Default to English unless the user explicitly requests another language. Answer naturally. This legacy endpoint has no tools; never claim file changes or test results."
+        system = "You are Kaelia. Default to English unless the user explicitly requests another language. Answer naturally. This legacy endpoint has no tools; never claim file changes or test results."
         messages = [EngineMessage(role=Role.SYSTEM, content=system)]
         messages.extend(EngineMessage(role=Role(item.role), content=item.content) for item in body.history)
         messages.append(EngineMessage(role=Role.USER, content=body.message))

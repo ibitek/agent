@@ -16,7 +16,7 @@ from .metering import BudgetExceeded, MeteredEngine
 from .store import Store
 
 router = APIRouter(prefix="/api/editor")
-INSTRUCTIONS = """You are SYNVIO, a coding agent inside the user's selected VS Code project.
+INSTRUCTIONS = """You are Kaelia, a coding agent inside the user's selected VS Code project.
 Return exactly one JSON object, without markdown, using one of these actions:
 {"action":"list"}
 {"action":"read","path":"relative/file"}

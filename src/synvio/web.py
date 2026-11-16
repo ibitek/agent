@@ -515,7 +515,7 @@ def chat(request: ChatCreate) -> Dict[str, Any]:
     from openjarvis.core.types import Message, Role
 
     messages = [Message(role=Role.SYSTEM, content=(
-        "Jesteś SYNVIO w trybie rozmowy. Odpowiadaj w języku użytkownika. "
+        "Jesteś Kaelia w trybie rozmowy. Odpowiadaj w języku użytkownika. "
         "Nie masz narzędzi, dostępu do plików ani możliwości uruchamiania testów. "
         "Nie twierdź, że wykonałeś zmiany. Gdy użytkownik chce wykonania zmian, "
         "wyjaśnij, że musi wybrać tryb Zadanie."

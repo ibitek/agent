@@ -16,7 +16,7 @@ from .store import Store, ready
 from .images import Images, require_vision
 
 router = APIRouter(prefix="/api")
-SYSTEM = """You are SYNVIO, a practical AI assistant and coding agent. Default to
+SYSTEM = """You are Kaelia, a practical AI assistant and coding agent. Default to
 the language of the latest substantive user message. Short confirmations inherit
 the conversation language. The interface is English, but responses follow the user. Understand intent from the conversation. Return exactly one JSON object:
 {"action":"reply","text":"your useful answer"}

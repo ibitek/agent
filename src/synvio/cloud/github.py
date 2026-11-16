@@ -194,7 +194,7 @@ async def publish(value:str,body:Publish):
             else: await api('POST',prefix+'/git/refs',token,{'ref':'refs/heads/'+branch,'sha':saved['commit']})
             saved['branch']=branch;save()
         existing=await api('GET',prefix+'/pulls?state=all&head='+quote(repo.split('/')[0]+':'+branch,safe=''),token)
-        result=existing[0] if existing else await api('POST',prefix+'/pulls',token,{'title':body.title,'head':branch,'base':info['branch'],'draft':True,'body':'Changes prepared in SYNVIO. Review the diff and checks before merging. No automatic merge was requested.'})
+        result=existing[0] if existing else await api('POST',prefix+'/pulls',token,{'title':body.title,'head':branch,'base':info['branch'],'draft':True,'body':'Changes prepared in Kaelia. Review the diff and checks before merging. No automatic merge was requested.'})
         saved['url']=result['html_url'];save()
         return {'url':saved['url']}
     finally: store.call('DEL',lock)

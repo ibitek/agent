@@ -108,7 +108,7 @@ return 1
         return json.loads(raw) if raw else default
 
     def project(self, project_id="default"):
-        return self.get_json("project", project_id, {"README.md": "# New SYNVIO project\n\nBuild your application and its tests in this project.\n"})
+        return self.get_json("project", project_id, {"README.md": "# New Kaelia project\n\nBuild your application and its tests in this project.\n"})
 
     def write_cost(self, task_id, event):
         calls=event.get('calls') or []

@@ -36,7 +36,7 @@ REASON_ATTEMPTS = "max_repair_attempts_reached"
 REASON_ERROR = "agent_error"
 
 DEV_INSTRUCTIONS = """\
-You are SYNVIO's developer agent working inside a dedicated project workspace.
+You are Kaelia's developer agent working inside a dedicated project workspace.
 Default to English unless the user explicitly requests another language.
 
 Available tools: dev_list_files, dev_read_file, dev_write_file, dev_run_tests.

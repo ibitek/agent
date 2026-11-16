@@ -3,7 +3,7 @@ import { Github, X } from 'lucide-react'
 import { getJSON } from './api.js'
 const uuid=()=>crypto.randomUUID().replaceAll('-','')
 export default function GitHubPanel({taskId,onClose,onImport}){
-  const [config,setConfig]=useState(null),[source,setSource]=useState(null),[repos,setRepos]=useState([]),[repository,setRepository]=useState(''),[branch,setBranch]=useState(''),[privateRepo,setPrivateRepo]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[title,setTitle]=useState('Update application with SYNVIO'),[published,setPublished]=useState('')
+  const [config,setConfig]=useState(null),[source,setSource]=useState(null),[repos,setRepos]=useState([]),[repository,setRepository]=useState(''),[branch,setBranch]=useState(''),[privateRepo,setPrivateRepo]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[title,setTitle]=useState('Update application with Kaelia'),[published,setPublished]=useState('')
   const dialogRef=useRef(null),importId=useRef(null),publishId=useRef(null)
   useEffect(()=>{dialogRef.current.showModal()},[])
   useEffect(()=>{let cancelled=false;getJSON('/api/github/status').then(data=>{if(!cancelled)setConfig(data)}).catch(cause=>{if(!cancelled)setError(cause.message)});if(taskId)getJSON(`/api/github/projects/${taskId}`).then(data=>{if(!cancelled)setSource(data.source)}).catch(()=>{});return()=>{cancelled=true}},[taskId])

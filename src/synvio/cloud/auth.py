@@ -62,12 +62,12 @@ def require(request: Request) -> None:
         authorization = request.headers.get("authorization", "")
         if authorization.startswith("Bearer "):
             if not supabase_auth.valid(authorization[7:]):
-                raise HTTPException(401, "Sign in to SYNVIO.")
+                raise HTTPException(401, "Sign in to Kaelia.")
             if request.headers.get("origin"):
                 check_origin(request)
             return
     if not valid(request.cookies.get(cookie_name())):
-        raise HTTPException(401, "Sign in to SYNVIO.")
+        raise HTTPException(401, "Sign in to Kaelia.")
     if request.method not in {"GET", "HEAD", "OPTIONS"}:
         check_origin(request)
 
