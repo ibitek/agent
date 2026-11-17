@@ -57,3 +57,10 @@ Aktualizacja 17 listopada 2026: użytkownik wznowił pracę. Ukończono etap nat
 
 Zachować React/FastAPI i źródła OpenJarvis. Pełna architektura znajduje się w KAELIA_ARCHITECTURE.md w katalogu nadrzędnym sesji.
 
+
+## Potwierdzenie produkcyjne — 2026-11-17
+
+- Wdrożenie e767626: rzeczywiste przygotowanie managed runtime v2 zakończyło się sukcesem. Pełny etap obejmuje instalację Codex CLI i zależności startera, build oraz render Playwright desktop/mobile przed zapisaniem obrazu.
+- Po ponownym załadowaniu produkcyjnego interfejsu panel pokazuje Build workspace / Ready, bez przycisku instalacji. Obraz narzędzi pozostaje zapisany do kolejnych zadań.
+- 437 testów Python, 14 testów Node oraz kompilacja interfejsu przeszły. Nie wykonano inferencji modelu; przygotowanie korzystało z cloud compute.
+- Pełne zadanie Codex z generowaniem i oceną projektu pozostaje osobnym testem. Gotowy toolchain nie stanowi gwarancji jakości projektu ani dowodu testów interakcji.
