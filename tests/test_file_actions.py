@@ -47,9 +47,10 @@ def test_saved_file_body_is_not_sent_back_to_the_model_and_context_is_bounded():
 def test_repeated_reads_without_progress_pause_instead_of_looping():
     store=Store()
     build(store,{'id':'a','task':'Review page','model':'fake'},{'index.html':'<h1>Saved</h1>'},Engine([
-        {'action':'read','path':'index.html'}]*3))
+        {'action':'read','path':'index.html'}]*4))
     assert store.result['status']=='paused'
     assert store.result['report']['reason']=='no_progress'
+    assert any(event['event']=='strategy_change' for event in store.events)
     assert store.saved['files','a']['index.html']=='<h1>Saved</h1>'
 
 

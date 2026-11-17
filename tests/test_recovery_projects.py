@@ -92,6 +92,16 @@ def test_unknown_provider_cost_requires_explicit_acknowledgment(client):
     assert client.post(f'/api/tasks/{value}/resume',json={**body,'acknowledge_unknown_cost':True}).status_code==200
 
 
+def test_hard_repair_limit_blocks_resume_before_creating_another_run(client):
+    store, value = seeded(client)
+    store.put_json('checkpoint', value, {'loop_guard': {'stopped': True}})
+    response = client.post(f'/api/tasks/{value}/resume', json={'request_id': '8' * 32})
+    assert response.status_code == 409
+    assert 'revised instructions' in response.text
+    assert len(store.history(10)) == 1
+    assert store.get_json('files', value)['index.html'] == '<h1>Saved</h1>'
+
+
 def test_checkpoint_refuses_late_worker_writes(client):
     store,value=seeded(client,'running')
     store.checkpoint(value,{'pending_action':None},{'index.html':'first'})
