@@ -1,6 +1,7 @@
 """Versioned Codex/browser toolchain snapshots. No inference or public ports."""
 import json
 import re
+import subprocess
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -93,6 +94,9 @@ async def prepare():
     except HTTPException: raise
     except Exception as exc:
         if box is not None: await box.destroy()
+        if isinstance(exc, subprocess.CalledProcessError):
+            details = str(exc.stderr or '') + '\n' + str(exc.stdout or '')
+            exc = RuntimeError(str(exc) + '\n' + details[-1600:])
         raise HTTPException(503, public_error(exc)) from None
     finally:
         store.call('DEL', store.key('developer-prepare-lock'))

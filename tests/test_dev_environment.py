@@ -56,7 +56,8 @@ def test_environment_status_is_read_only_and_expired_images_are_not_ready(client
     assert not client.get('/api/codex/environment').json()['prepared']
 
 
-def test_prepare_reuses_browser_snapshot_and_installs_tools_without_any_api_key(client, monkeypatch):
+@pytest.mark.parametrize('install_failure', [False, True])
+def test_prepare_reuses_browser_snapshot_and_installs_tools_without_any_api_key(client, monkeypatch, install_failure):
     from synvio.cloud import browser_sessions
     from vercel import sandbox
     calls=[]
@@ -70,7 +71,12 @@ def test_prepare_reuses_browser_snapshot_and_installs_tools_without_any_api_key(
         def write_text(self,path,text): calls.append(('file',path))
     class Box:
         name='coding-image';fs=Files()
-        async def run_command(self,cmd,args,**kwargs): calls.append(('command',cmd,args,kwargs));return NS(returncode=0)
+        async def run_command(self,cmd,args,**kwargs):
+            calls.append(('command',cmd,args,kwargs))
+            if install_failure and args[0]=='ci':
+                import subprocess
+                raise subprocess.CalledProcessError(1, ['npm','ci'], output='private-model-key', stderr='NPM_INSTALL_DIAGNOSTIC')
+            return NS(returncode=0)
         async def create_command(self,cmd,args,**kwargs): calls.append(('background',cmd,args,kwargs));return NS(id='server')
         async def update(self,**kwargs): calls.append(('policy',kwargs))
         async def snapshot(self,**kwargs): return NS(id='coding-snapshot')
@@ -84,6 +90,13 @@ def test_prepare_reuses_browser_snapshot_and_installs_tools_without_any_api_key(
     monkeypatch.setenv('OPENAI_API_KEY','private-model-key')
     login(client)
     response=client.post('/api/codex/environment/prepare')
+    if install_failure:
+        assert response.status_code==503
+        assert 'NPM_INSTALL_DIAGNOSTIC' in response.text
+        assert 'private-model-key' not in response.text
+        assert ('destroy',) in calls
+        assert not client.get('/api/codex/environment').json()['prepared']
+        return
     assert response.status_code==200,response.text
     assert response.json()['prepared']
     assert calls[1][1]['env']=={} and calls[1][1]['ports']==[]
