@@ -1,29 +1,23 @@
 # Kaelia — punkt wznowienia
 
-Przerwano na prośbę użytkownika 17 listopada 2026. Nie uruchamiać płatnych testów ani wdrożenia automatycznie po odczytaniu tego pliku; obowiązuje aktualne polecenie użytkownika.
+Aktualizacja 17 listopada 2026: użytkownik wznowił pracę. Ukończono etap natywnych narzędzi dla Astry/Sol oraz ochrony checkpointów.
 
-## Produkcja
+## Stan zweryfikowany
 
-Commit `7835113`: marka Kaelia wdrożona na https://agents.synviocore.xyz. Nowa domena będzie kupiona później. Sesja, historia oraz podgląd zweryfikowane w przeglądarce. Przed wdrożeniem przeszło 375 testów Python, 9 testów Node i kompilacja frontendu.
+- 403 testy Python offline przeszły, wraz z testami rzeczywistych struktur SDK, checkpointów przed/po zapisie, limitu czasu i operacji, migracji starego stanu oraz prywatności odpowiedzi API.
+- Kompilacja frontendu przeszła. Nie wykonano płatnej próby modelu; zgodność z rzeczywistą odpowiedzią dostawcy pozostaje osobną walidacją.
+- resume_checkpoint nie jest zwracany przez publiczny odczyt zadania ani historię. Recovery pobiera go wewnętrznie.
+- Potwierdzone odrzucenia żądania przez OpenAI zwalniają rezerwację; timeout i błędy serwera zachowują nieznany koszt i blokują automatyczne powtórzenie.
+- Pauza przed wykonaniem operacji zachowuje pending_action; checkpoint wskazuje model protokołu. Próba użycia stanu innego modelu jest odrzucana przed wywołaniem.
+- Marka Kaelia pozostaje na agents.synviocore.xyz. Starsze adaptery i Codex CLI zachowują własne ścieżki.
 
-## Zapisany etap roboczy — jeszcze niewdrożony
+## Dalej
 
-- `native_tools.py`: stały, ścisły schemat workspace_action; lokalna walidacja, jedna akcja lub atomowy batch, powiązanie call_id z wynikiem, zachowanie ostatniej natywnej tury wraz z zaszyfrowanym stanem reasoning.
-- `responses.py`: natywne narzędzia dla gpt-6-astra / gpt-6.1-sol, store=false, brak równoległych wywołań i brak tekstowego JSON mode w tej ścieżce.
-- `metering.py`: koszt schematu i natywnej historii uwzględniony w rezerwacji; zapis identyfikatora odpowiedzi.
-- `web_builder.py`: użycie natywnych narzędzi tylko przez obsługujący je adapter; checkpoint wersji 2; istniejąca walidacja plików i starsze adaptery zachowane. Niepełna/niepoprawna odpowiedź powoduje pauzę bez automatycznego powtórzenia płatnego wywołania.
-- `test_native_tools.py`: testy offline błędów, powiązania wyników z wywołaniami, wznowienia oczekującej poprawki i ochrony budżetu.
+1. Zweryfikować produkcyjne wdrożenie i zwykłe odczyty API bez płatnego wywołania. Dla przyszłego testu prawdziwego modelu osobno określić zakres i limit.
+2. Zastąpić pozostałe tekstowe akcje w rozmowie/adaptacji dostawców natywnymi narzędziami tam, gdzie są zgodne; obecny etap obejmuje wykonawcę plików dla gpt-6-astra i gpt-6.1-sol.
+3. Trwałe liczniki anti-loop obejmujące wznowienia i powtarzające się błędy walidacji. Ograniczone zmiany strategii; bez automatycznych kosztownych restartów.
+4. Rozdzielenie danych workspace, Postgres jako źródło prawdy, rejestr modeli, pełniejsze Codex/MCP i rzeczywisty Live.
+5. Potem księga portfela/płatności i studio. Najnowsze bonusy 1–10%; nie uruchamiać płatności bez księgi oraz weryfikacji zasad sprzedaży.
 
-Ostatnia walidacja tego etapu: **35 testów przeszło** (native_tools, source_syntax, responses_engine, metering, web_builder). Testy używają atrap; nie wykonano płatnego wywołania, pełnej regresji ani wdrożenia tej zmiany. Składnia i testy kontraktów nie dowodzą jeszcze zgodności na rzeczywistym API.
+Zachować React/FastAPI i źródła OpenJarvis. Pełna architektura znajduje się w KAELIA_ARCHITECTURE.md w katalogu nadrzędnym sesji.
 
-## Następne kroki, w kolejności
-
-1. Przejrzeć integrację natywnego protokołu i testy. Poprawić test wire-format, aby rzeczywiście serializował niepusty output SDK; obecnie sprawdza głównie parametry żądania.
-2. Usunąć resume_checkpoint z publicznych odpowiedzi task_row (obecnie filtr usuwa tylko images/codex_proxy_digest). Recovery powinno odczytywać ten wewnętrzny stan bezpośrednio z magazynu. Dodać test, że stan modelu i pełne argumenty nie trafiają do publicznych danych zadania/Activity.
-3. Sprawdzić awarię przed zapisem i po zapisie checkpointu, granice limitu operacji, wznowienie odrzuconej akcji oraz stary checkpoint JSON przechodzący na natywny adapter. Sprawdzić odtworzenie pól modelu i wersji protokołu.
-4. Rozróżnić jednoznacznie odrzucone żądania API (np. 400, 401, 429) od nieznanego zużycia po przerwanym połączeniu. Nie zatrzymywać niepotrzebnie rezerwacji przy potwierdzonym odrzuceniu; nigdy nie ponawiać płatnych operacji w ciemno. Testy bez sieci.
-5. Uruchomić pełną regresję offline. W tym środowisku TestClient zawieszał się przy uruchomieniu ograniczonym; ten sam verify_offline.py po eskalacji działał. Skrypt usuwa klucze, blokuje zewnętrzną sieć i izoluje katalog SDK.
-6. Dopiero po pozytywnych wynikach wysłać zmiany i zweryfikować wdrożenie. Rzeczywisty test modelu jest osobnym etapem z ustalonym budżetem; podczas tej sesji go nie wykonywano.
-7. Następnie: trwały stan zadań i liczniki anti-loop przez wznowienia, rozdzielenie danych workspace, rejestr modeli, rozszerzenie integracji Codex/MCP, prawdziwy Live i pomiar jakości wizualnej.
-
-Architektura docelowa: dokument KAELIA_ARCHITECTURE.md w katalogu nadrzędnym sesji. Zachować React/FastAPI, nie modyfikować OpenJarvis. Najnowszy zakres bonusów 1–10%; księga i płatności dopiero po przygotowaniu izolacji oraz rozliczeń. Zmiana marki nie jest ukończeniem przebudowy wykonawcy.

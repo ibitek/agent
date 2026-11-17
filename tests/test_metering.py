@@ -58,6 +58,28 @@ def test_ambiguous_timeout_retains_reservation_and_never_retries():
     assert engine.calls == 1
 
 
+@pytest.mark.parametrize('status', [400, 401, 403, 404, 413, 422, 429, 500, 503])
+def test_authoritative_rejection_releases_hold_but_server_failure_remains_unknown(status):
+    import httpx
+    from openai import APIStatusError
+    error = APIStatusError('Provider rejected the request',
+        response=httpx.Response(status, request=httpx.Request('POST', 'https://api.openai.com/v1/responses')),
+        body={'error': {'message': 'Rejected'}})
+    engine = FakeEngine(error=error)
+    meter = MeteredEngine(engine, 'gpt-4o-mini', '.2')
+    with pytest.raises(APIStatusError):
+        meter.generate(MESSAGES, model='gpt-4o-mini')
+    if status < 500:
+        assert meter.calls[0]['state'] == 'rejected'
+        assert meter.summary()['unresolved_reservation_usd'] == '0.000000000'
+    else:
+        assert meter.calls[0]['state'] == 'unresolved'
+        assert Decimal(meter.summary()['unresolved_reservation_usd']) > 0
+    with pytest.raises(BudgetExceeded):
+        meter.generate(MESSAGES, model='gpt-4o-mini')
+    assert engine.calls == 1
+
+
 def test_unlimited_has_no_cost_ceiling_but_keeps_usage_and_ambiguity_guards():
     engine=FakeEngine()
     meter=MeteredEngine(engine,'gpt-4o-mini',None)

@@ -35,7 +35,7 @@ class ResponsesEngine:
         response = self.client.responses.create(**options)
         usage = response.usage
         result = {'content':response.output_text,'usage':{'prompt_tokens':usage.input_tokens,
-            'completion_tokens':usage.output_tokens,'prompt_tokens_details':{'cached_tokens':getattr(usage.input_tokens_details, 'cached_tokens', None)}},
+            'completion_tokens':usage.output_tokens,'prompt_tokens_details':{'cached_tokens':getattr(getattr(usage, 'input_tokens_details', None), 'cached_tokens', None)}},
             'response_id':response.id}
         if native_items is not None:
             result.update(native_output=[item.model_dump(exclude_none=True) for item in response.output],

@@ -124,17 +124,25 @@ def test_validation_failure_returns_actual_result_to_finish_tool():
 
 
 def test_responses_wire_format_preserves_reasoning_and_uses_no_json_text_mode():
+    from openai.types.responses import ResponseFunctionToolCall, ResponseReasoningItem
     calls = []
     data = result({'action': 'list'})
     def create(**options):
         calls.append(options)
         return NS(id='response', status='completed', output_text='',
-                  output=[NS(model_dump=lambda **kw: item) for item in []],
+                  output=[ResponseReasoningItem(**data['native_output'][0]),
+                          ResponseFunctionToolCall(**data['native_output'][1])],
                   usage=NS(input_tokens=10, output_tokens=5, input_tokens_details=NS(cached_tokens=0)))
     engine = ResponsesEngine(NS(responses=NS(create=create)))
     meter = MeteredEngine(engine, 'gpt-6-astra', '2')
-    meter.generate([Message(role=Role.USER, content='Build')], model='gpt-6-astra', max_tokens=100,
-                   native_items=[])
+    response = meter.generate([Message(role=Role.USER, content='Build')], model='gpt-6-astra', max_tokens=100,
+                              native_items=[])
+    session = NativeSession()
+    assert session.accept(response) == {'action': 'list'}
+    session.complete('Files: index.html')
+    meter.generate([Message(role=Role.USER, content='Continue')], model='gpt-6-astra',
+                   max_tokens=100, native_items=session.input_items())
+    assert calls[1]['input'][-3:] == session.input_items()
     assert calls[0]['tools'] == [TOOL]
     assert calls[0]['tool_choice'] == 'required'
     assert calls[0]['parallel_tool_calls'] is False
@@ -160,3 +168,90 @@ def test_native_tool_cannot_bypass_legacy_engine_capability_guard():
     meter = MeteredEngine(object(), 'gpt-4o-mini', '.2')
     with pytest.raises(BudgetExceeded, match='Native tools'):
         meter.generate([], model='gpt-4o-mini', native_items=[])
+
+
+@pytest.mark.parametrize('checkpoint_number', [1, 2])
+def test_crash_before_or_after_publishing_patch_resumes_without_duplicate_edit(checkpoint_number):
+    class Crash(RuntimeError):
+        pass
+    class CrashStore(Store):
+        def checkpoint(self, *args):
+            super().checkpoint(*args)
+            if len(self.snapshots) == checkpoint_number:
+                raise Crash('Simulated worker shutdown')
+    store = CrashStore()
+    operation = {'action': 'patch', 'path': 'index.html', 'old': 'Old', 'new': 'New'}
+    with pytest.raises(Crash):
+        build(store, TASK, {'index.html': '<h1>Old</h1>'}, Engine([operation]))
+    state, files = store.snapshots[-1]
+    resumed = Store()
+    engine = Engine([{'action': 'finish', 'text': 'Updated'}])
+    build(resumed, {**TASK, 'resume_checkpoint': state}, files, engine)
+    assert resumed.files == {'index.html': '<h1>New</h1>'}
+    assert resumed.report['success']
+    assert len(engine.calls) == 1
+
+
+def test_deadline_preserves_pending_native_operation_for_next_resume():
+    import time
+    operation = {'action': 'patch', 'path': 'index.html', 'old': 'Old', 'new': 'New'}
+    session = NativeSession()
+    session.accept(result(operation))
+    store = Store()
+    build(store, {**TASK, 'deadline': time.time(), 'resume_checkpoint': {
+        'pending_action': operation, 'native_tool_state': session.state}},
+        {'index.html': '<h1>Old</h1>'}, Engine([]))
+    state, files = store.snapshots[-1]
+    assert state['pending_action'] == operation
+    resumed = Store()
+    build(resumed, {**TASK, 'resume_checkpoint': state}, files,
+          Engine([{'action': 'finish', 'text': 'Updated'}]))
+    assert resumed.report['success']
+
+
+def test_native_checkpoint_cannot_be_replayed_with_another_model():
+    with pytest.raises(ValueError, match='another model'):
+        build(Store(), {**TASK, 'resume_checkpoint': {'native_tool_model': 'other'}}, {}, Engine([]))
+
+
+def test_old_json_checkpoint_is_migrated_to_native_tools_without_losing_source():
+    from synvio.cloud.web_builder import SYSTEM
+    old = {'version': 1, 'changed': ['index.html'], 'pending_action': None,
+           'messages': [{'role': 'system', 'content': SYSTEM}, {'role': 'user', 'content': 'Build a page'}]}
+    store = Store()
+    engine = Engine([{'action': 'finish', 'text': 'Saved'}])
+    build(store, {**TASK, 'resume_checkpoint': old}, {'index.html': '<h1>Kept</h1>'}, engine)
+    assert store.report['success']
+    assert engine.calls[0]['native_items'] == []
+    assert store.snapshots[-1][0]['native_tool_model'] == TASK['model']
+
+
+def test_operation_limit_keeps_unexecuted_native_call_for_resume(monkeypatch):
+    import synvio.cloud.web_builder as builder
+    original_limits = builder.limits()
+    monkeypatch.setattr(builder, 'limits', lambda: {**original_limits, 'tool_calls_per_task': 0})
+    operation = {'action': 'write', 'path': 'index.html', 'content': '<h1>Saved once</h1>'}
+    store = Store()
+    engine = Engine([operation])
+    build(store, TASK, {}, engine)
+    state, files = store.snapshots[-1]
+    assert files == {}
+    assert state['pending_action'] == operation
+    assert len(engine.calls) == 1
+    monkeypatch.setattr(builder, 'limits', lambda: original_limits)
+    resumed = Store()
+    build(resumed, {**TASK, 'resume_checkpoint': state}, files,
+          Engine([{'action': 'finish', 'text': 'Saved'}]))
+    assert resumed.report['success']
+    assert resumed.files == {'index.html': '<h1>Saved once</h1>'}
+
+
+def test_native_batch_cannot_partially_publish_an_invalid_edit():
+    store = Store()
+    engine = Engine([{'action': 'batch', 'actions': [
+        {'action': 'write', 'path': 'index.html', 'content': '<h1>New</h1>'},
+        {'action': 'patch', 'path': 'style.css', 'old': 'missing', 'new': 'replacement'}]},
+        {'action': 'finish', 'text': 'Nothing changed'}])
+    build(store, TASK, {'index.html': '<h1>Keep</h1>'}, engine)
+    assert store.files == {'index.html': '<h1>Keep</h1>'}
+    assert 'all files unchanged' in engine.calls[1]['native_items'][-1]['output']

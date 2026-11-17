@@ -270,7 +270,7 @@ def task_row(store, value, item=None):
               'calls':[{**entry,'state':'rejected','provider_status':400} for entry in cost.get('calls',[])]}
         store.fields(value,cost_record=cost)
         item={**item,'cost_record':cost}
-    public = {key: value for key, value in item.items() if key not in {"images", "codex_proxy_digest"}}
+    public = {key: value for key, value in item.items() if key not in {"images", "codex_proxy_digest", "resume_checkpoint"}}
     return {**public, "image_count": len(item.get("images", [])), "cancellation_supported": item["status"] == "queued", "download_available": bool(item.get("report"))}
 
 

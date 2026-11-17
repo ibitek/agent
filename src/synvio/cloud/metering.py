@@ -57,7 +57,7 @@ def amount(value):
 
 
 def usd(value):
-    return None if value is None else str(value.quantize(PRECISION, rounding=ROUND_CEILING))
+    return None if value is None else format(value.quantize(PRECISION, rounding=ROUND_CEILING), 'f')
 
 
 def count(value):
@@ -175,9 +175,16 @@ class MeteredEngine:
             if self.observed and self.observed.usage is not None:
                 result = {**result, "usage": self.observed.usage}
             cost, usage = usage_cost(model, result.get("usage") or {})
-        except Exception:
+        except Exception as exc:
             self.blocked = True
             entry["state"] = "unresolved"
+            # Only an authoritative OpenAI request rejection can release this
+            # hold. A timeout, 5xx, unknown gateway error or malformed successful
+            # response remains ambiguous and must not be retried automatically.
+            from openai import APIStatusError
+            if isinstance(exc, APIStatusError) and exc.status_code in {400, 401, 403, 404, 413, 422, 429}:
+                self.reserved_unknown -= reservation
+                entry.update(state='rejected', provider_status=exc.status_code)
             self.persist({"event": "model_cost", **self.summary()})
             raise
         self.reserved_unknown -= reservation

@@ -57,6 +57,8 @@ def build(store, task, baseline, engine):
         messages = [Message(role=Role(item["role"]),content=item["content"]) for item in saved["messages"]]
     native = NativeSession(saved.get('native_tool_state')) if getattr(engine, 'supports_native_tools', False) else None
     if native:
+        if saved.get('native_tool_model', task['model']) != task['model']:
+            raise ValueError('The native checkpoint belongs to another model. No model call was sent.')
         messages[0].content = native_prompt(messages[0].content)
     # Reattach once from the durable task, including after checkpoint recovery.
     if task.get("images"):
@@ -77,7 +79,7 @@ def build(store, task, baseline, engine):
     def checkpoint(pending_action=None):
         if hasattr(store, "checkpoint"):
             store.checkpoint(task["id"], {"version":2,"messages":[{"role":str(m.role.value),"content":m.content} for m in messages],"changed":changed,"pending_action":pending_action,
-                **({'native_tool_state': native.state} if native else {})}, files)
+                **({'native_tool_state': native.state, 'native_tool_model': task['model']} if native else {})}, files)
     answer = "The turn limit was reached. Saved changes remain available for inspection."
     finished = False
     invalid_responses = 0
@@ -86,7 +88,7 @@ def build(store, task, baseline, engine):
         compact_context()
         if time.time() > task.get("deadline", float("inf")) - 8:
             answer = "Work paused before the execution deadline. Saved changes can be resumed."
-            checkpoint()
+            checkpoint(pending)
             break
         store.event(task['id'], {"event": "model_thinking", "step": step + 1})
         if pending is not None:

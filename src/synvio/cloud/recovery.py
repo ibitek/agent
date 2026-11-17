@@ -53,7 +53,7 @@ def resume(value:str,body:Resume):
         new_id=created['id']
         if task.get('model_id','').startswith(('codex:','codex-browser:')):
             store.fields(new_id,codex_session_id=task.get('codex_session_id'),codex_submission=task.get('codex_submission') or task['id'],codex_resuming=True,codex_usage_before=task.get('codex_usage') or {})
-        checkpoint=store.get_json('checkpoint',value) or task.get('resume_checkpoint')
+        checkpoint=store.get_json('checkpoint',value) or (store.get(value) or {}).get('resume_checkpoint')
         store.fields(new_id,resume_from=value,resume_checkpoint=checkpoint if task.get('runtime') in {'web','app','source'} else None)
         store.fields(value,resumed_by=new_id)
         if body.conversation_id:

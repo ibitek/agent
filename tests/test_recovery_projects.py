@@ -48,6 +48,23 @@ def test_resume_preserves_source_and_checkpoint_even_if_previous_start_was_rejec
     assert store.get(child)['resume_checkpoint']==checkpoint
 
 
+def test_private_checkpoint_is_not_exposed_by_task_or_history_or_resume(client):
+    store, value = seeded(client)
+    private = {'native_tool_state': {'output': [{'encrypted_content': 'private-state',
+               'arguments': 'private-file-body'}]}, 'pending_action': None}
+    store.fields(value, runtime='web', resume_checkpoint=private)
+    for response in [client.get(f'/api/tasks/{value}'), client.get('/api/tasks')]:
+        assert response.status_code == 200
+        assert 'private-state' not in response.text
+        assert 'private-file-body' not in response.text
+        assert 'resume_checkpoint' not in response.text
+    response = client.post(f'/api/tasks/{value}/resume', json={'request_id': '9' * 32})
+    assert response.status_code == 200
+    child = response.json()['task']['id']
+    assert store.get(child)['resume_checkpoint'] == private
+    assert 'private-state' not in client.get(f'/api/tasks/{child}').text
+
+
 def test_resume_preserves_checkpoint_and_is_idempotent(client):
     store,value=seeded(client)
     checkpoint={'version':1,'messages':[{'role':'user','content':'Original request'}],'pending_action':{'action':'finish','text':'Done'},'changed':['index.html']}
