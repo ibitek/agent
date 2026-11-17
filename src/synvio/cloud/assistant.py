@@ -54,7 +54,7 @@ def confirmation(message):
 
 
 def web_request(task):
-    return bool(re.search(r"\b(?:website|webpage|web\w*|landing page|html|css|javascript|static page|stron\w*|podstron\w*)\b", task.casefold()))
+    return bool(re.search(r"\b(?:website|webpage|web\w*|(?:interactive|landing|static|portfolio|html)[ -]+page|html|css|javascript|stron\w*|podstron\w*)\b", task.casefold()))
 
 
 def polish_context(messages):

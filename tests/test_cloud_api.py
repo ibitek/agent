@@ -493,6 +493,23 @@ def test_static_website_can_queue_without_execution_snapshot(client, monkeypatch
     assert not cloud.tasks_ready('python')
 
 
+@pytest.mark.parametrize('message', ['Build a simple interactive page', 'Create a portfolio page', 'Build an interactive-page'])
+def test_page_requests_use_web_execution_without_a_python_test_environment(client, monkeypatch, message):
+    login(client)
+    monkeypatch.setattr(cloud, 'saved_snapshot', lambda store: None)
+    assistant_engine(monkeypatch, [{'action': 'execute', 'task': message}])
+    response = client.post('/api/assistant', json={'request_id': '7' * 32, 'message': message})
+    assert response.status_code == 200
+    assert response.json()['task'] is not None
+    assert cloud.get_store().get(response.json()['task']['id'])['runtime'] == 'web'
+
+
+@pytest.mark.parametrize('message', ['Implement Python pagination', 'Create a PDF page counter', 'Calculate page numbers'])
+def test_non_web_page_operations_do_not_get_routed_as_websites(message):
+    from synvio.cloud.assistant import web_request
+    assert not web_request(message)
+
+
 def test_verification_worker_never_opens_model_or_publishes_project_changes(client, monkeypatch):
     from types import SimpleNamespace
     from synvio.cloud import worker
