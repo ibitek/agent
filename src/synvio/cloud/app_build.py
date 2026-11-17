@@ -52,7 +52,7 @@ for p in root.rglob('*'):
     if not p.is_file(): continue
     if p.suffix not in {'.html','.js','.mjs','.css','.svg','.json','.txt'}: continue
     if not p.resolve().is_relative_to(root): raise ValueError('Artifact escaped dist')
-    if p.stat().st_size>262144: raise ValueError('Artifact exceeds 256 KiB')
+    if p.stat().st_size>524288: raise ValueError('Artifact exceeds 512 KiB')
     out['dist/'+p.relative_to(root).as_posix()]=p.read_text(encoding='utf-8')
     if len(out)>100 or len(json.dumps(out).encode())>2097152: raise ValueError('Artifacts exceed preview limits')
 Path('/vercel/sandbox/preview-artifacts.json').write_text(json.dumps(out),encoding='utf-8')
@@ -155,7 +155,7 @@ async def build(store, task_id, request_id, files):
                 raw = await reader.read(MAX_PROJECT_BYTES + 1)
             if len(raw) > MAX_PROJECT_BYTES:
                 raise ValueError('Build artifacts exceed the preview size limit.')
-            artifacts = validate_files(json.loads(raw))
+            artifacts = validate_files(json.loads(raw), max_file_bytes=512 * 1024)
             if any(not path.startswith('dist/') for path in artifacts):
                 raise ValueError('Invalid build artifact path.')
             preview = build_preview(artifacts)

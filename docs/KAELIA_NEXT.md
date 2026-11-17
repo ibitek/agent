@@ -4,7 +4,7 @@ Aktualizacja 17 listopada 2026: użytkownik wznowił pracę. Ukończono etap nat
 
 ## Stan zweryfikowany
 
-- 414 testów Python offline przeszły, wraz z testami rzeczywistych struktur SDK, checkpointów przed/po zapisie, limitu czasu i operacji, migracji starego stanu oraz prywatności odpowiedzi API.
+- 435 testów Python offline przeszły, wraz z testami rzeczywistych struktur SDK, checkpointów przed/po zapisie, limitu czasu i operacji, migracji starego stanu oraz prywatności odpowiedzi API.
 - Kompilacja frontendu przeszła. Nie wykonano płatnej próby modelu; zgodność z rzeczywistą odpowiedzią dostawcy pozostaje osobną walidacją.
 - resume_checkpoint nie jest zwracany przez publiczny odczyt zadania ani historię. Recovery pobiera go wewnętrznie.
 - Potwierdzone odrzucenia żądania przez OpenAI zwalniają rezerwację; timeout i błędy serwera zachowują nieznany koszt i blokują automatyczne powtórzenie.
@@ -28,6 +28,16 @@ Aktualizacja 17 listopada 2026: użytkownik wznowił pracę. Ukończono etap nat
 - Zapisane screenshoty wykorzystują dotychczasowy CodexBrowser. Widok wyraźnie odróżnia screenshot od transmisji wideo. Odczyt nie tworzy środowiska; odpytywanie w tle i po zakończeniu zadania ograniczone.
 - Natywne details i animacje CSS z reduced-motion. Zmiana zakładki chroni niezapisane zmiany edytora.
 - 14 testów Node przeszło; kompilacja frontendu również. Testy backendu nadal bez płatnych wywołań i rzeczywistego uruchomienia Codex VM.
+
+## Coding environment — wersja 1
+
+- Oficjalny starter wygenerowany przez shadcn CLI 4.23.0: React 19.3.1, Vite 8.3.8, Tailwind 4.3.5, komponenty button/card/badge/separator, Radix/Lucide. Wersje i lockfile przypięte; MIT z atrybucją zachowane.
+- Starter kompiluje się lokalnie. Starter buduje pojedynczy moduł do obecnego podglądu bez zewnętrznych importów. Pliki artefaktów mogą mieć do 512 KiB przy niezmienionym limicie całości 2 MiB; pliki źródłowe nadal mają limit 256 KiB. Nie jest dodawany do istniejącego repo ani do jawnie zleconego czystego HTML.
+- /api/codex/environment oraz /prepare udostępniają 24-godzinny cache narzędzi. Obraz pochodzi z przygotowanego Playwright Chromium; instaluje przypięty Codex i zależności startera, wykonuje build oraz kontrolny render desktop/mobile bez modelu. Brak publicznych portów i kluczy modelu w środowisku.
+- Nowe zadania Codex korzystają z gotowego CLI; nowe projekty dostają starter i cache node_modules. Dla frontendów dostępny Playwright oraz helper do screenshotów, konsoli i overflow. Istniejące stosy pozostają zachowane.
+- Kontrola wizualna nie jest dowodem jakości estetycznej ani testów interakcji. Agent otrzymuje instrukcję oglądania obu screenshotów, poprawiania błędów i testowania wymaganych interakcji; browser_verified nie jest automatycznie ustawiane na true.
+- Live potrafi pokazać desktop/mobile. Identyczne screenshoty nie produkują kolejnych fikcyjnych zdarzeń. Kontekst Codexa kompaktowany przy 64k zamiast 900k tokenów.
+- Testy SDK/API są offline; rzeczywiste przygotowanie obrazu wymaga osobnego potwierdzenia wyniku po wdrożeniu. Nie uruchomiono modelu.
 
 ## Dalej
 

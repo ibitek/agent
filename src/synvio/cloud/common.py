@@ -103,13 +103,13 @@ def safe_path(value: str) -> str:
     return str(path)
 
 
-def validate_files(files: dict[str, str]) -> dict[str, str]:
+def validate_files(files: dict[str, str], *, max_file_bytes=MAX_FILE_BYTES) -> dict[str, str]:
     if len(files) > MAX_PROJECT_FILES:
         raise ValueError("The project exceeds the 100-file limit.")
     result = {}
     for name, content in files.items():
-        if not isinstance(content, str) or len(content.encode()) > MAX_FILE_BYTES:
-            raise ValueError("The file exceeds the 256 KiB limit.")
+        if not isinstance(content, str) or len(content.encode()) > max_file_bytes:
+            raise ValueError(f"The file exceeds the {max_file_bytes // 1024} KiB limit.")
         result[safe_path(name)] = content
     for name in result:
         if any(str(parent) in result for parent in PurePosixPath(name).parents if str(parent) != "."):

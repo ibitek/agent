@@ -30,9 +30,10 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+exclude = ["synvio.cloud.starter*"]
 
 [tool.setuptools.package-data]
-"synvio.cloud" = ["gateway_catalog.json"]
+"synvio.cloud" = ["gateway_catalog.json", "starter/*.json", "starter/*.md", "starter/*.html", "starter/*.js", "starter/src/*.jsx", "starter/src/*.css", "starter/src/lib/*.js", "starter/src/components/ui/*.jsx"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

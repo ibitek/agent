@@ -12,7 +12,7 @@ export default function LivePanel({task, events = [], logsReady, logsComplete, o
   const items = useMemo(() => activityItems(events), [events])
   const shown = items.filter(item => filter === 'all' || item.category === filter).slice(-200)
   const running = ['queued', 'running'].includes(task?.status)
-  const browser = task?.model_id?.startsWith('codex-browser:')
+  const browser = task?.model_id?.startsWith('codex-browser:') || events.some(event=>event.event==='codex_workspace'&&event.browser_enabled)
   useEffect(() => {
     if (follow) end.current?.scrollIntoView({block:'nearest', behavior:'instant'})
   }, [items.length, follow, filter])

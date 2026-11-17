@@ -31,6 +31,7 @@ from .recovery import router as recovery_router
 from .project_files import router as project_files_router
 from .github import router as github_router
 from .projects import router as projects_router
+from .dev_environment import router as developer_environment_router
 from .common import JOB_SECONDS, PROJECT, estimate, greeting, limits, local_reply, model_catalog, public_error, resolve_model, safe_path
 from .store import StorageUnavailable, Store, ready as storage_ready
 from .setup import prepare as prepare_sandbox, saved_snapshot
@@ -41,6 +42,7 @@ os.environ.setdefault("OPENJARVIS_HOME", str(Path(tempfile.gettempdir()) / "synv
 
 app = FastAPI(title="Kaelia API", docs_url=None, redoc_url=None, openapi_url=None)
 app.include_router(editor_router)
+app.include_router(developer_environment_router)
 app.include_router(assistant_router)
 app.include_router(browser_router)
 app.include_router(recovery_router)
