@@ -7,7 +7,7 @@ import re
 import time
 from pathlib import Path
 from urllib.parse import urlsplit
-from .common import MAX_PROJECT_BYTES, validate_files, public_error
+from .common import MAX_PROJECT_BYTES, validate_files, public_error, redact_data, safe_path
 from .edit_safety import check_replacement
 from .followups import prompt_for
 from .sandbox_runner import BoundedOutput
@@ -72,12 +72,25 @@ class Events:
             except ValueError: continue
             if event.get('type')=='thread.started': self.thread=event.get('thread_id')
             item=event.get('item') or {}
+            if event.get('type')=='item.started' and item.get('type')=='command_execution':
+                self.store.event(self.task['id'],redact_data({'event':'command_started','command':item.get('command','')[:1000],
+                    'command_id':item.get('id'),'execution_backend':'vercel_codex'}))
             if event.get('type')=='item.completed':
                 if item.get('type')=='agent_message': self.answer=item.get('text','')[-6000:]
                 if item.get('type')=='command_execution':
-                    self.store.event(self.task['id'],{'event':'command_result','command':item.get('command','')[:1000],
-                        'output':item.get('aggregated_output','')[-6000:],'exit_code':item.get('exit_code'),'execution_backend':'vercel_codex'})
-                if item.get('type')=='file_change': self.dirty=True
+                    self.store.event(self.task['id'],redact_data({'event':'command_result','command':item.get('command','')[:1000],
+                        'command_id':item.get('id'),'output':item.get('aggregated_output','')[-6000:],
+                        'exit_code':item.get('exit_code'),'execution_backend':'vercel_codex'}))
+                if item.get('type')=='file_change':
+                    self.dirty=True
+                    for change in item.get('changes') or []:
+                        path=change.get('path','')
+                        if path.startswith(ROOT+'/'): path=path[len(ROOT)+1:]
+                        try: path=safe_path(path)
+                        except ValueError: continue
+                        tool='dev_delete_file' if change.get('kind')=='delete' else 'dev_write_file'
+                        self.store.event(self.task['id'],redact_data({'event':'tool_call','tool':tool,'path':path,
+                            'success':item.get('status')!='failed','execution_backend':'vercel_codex'}))
             if event.get('type') in {'error','turn.failed'}:
                 self.error=str(event.get('message') or event.get('error') or 'Codex stopped.')[-1200:]
         if len(self.buffer)>100000: self.buffer=''

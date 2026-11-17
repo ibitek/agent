@@ -4,7 +4,7 @@ Aktualizacja 17 listopada 2026: użytkownik wznowił pracę. Ukończono etap nat
 
 ## Stan zweryfikowany
 
-- 413 testów Python offline przeszły, wraz z testami rzeczywistych struktur SDK, checkpointów przed/po zapisie, limitu czasu i operacji, migracji starego stanu oraz prywatności odpowiedzi API.
+- 414 testów Python offline przeszły, wraz z testami rzeczywistych struktur SDK, checkpointów przed/po zapisie, limitu czasu i operacji, migracji starego stanu oraz prywatności odpowiedzi API.
 - Kompilacja frontendu przeszła. Nie wykonano płatnej próby modelu; zgodność z rzeczywistą odpowiedzią dostawcy pozostaje osobną walidacją.
 - resume_checkpoint nie jest zwracany przez publiczny odczyt zadania ani historię. Recovery pobiera go wewnętrznie.
 - Potwierdzone odrzucenia żądania przez OpenAI zwalniają rezerwację; timeout i błędy serwera zachowują nieznany koszt i blokują automatyczne powtórzenie.
@@ -19,6 +19,15 @@ Aktualizacja 17 listopada 2026: użytkownik wznowił pracę. Ukończono etap nat
 - Niepowiązane zmiany plików nie resetują liczników odczytu; odtworzenie oczekującej operacji nie liczy się jako kolejna próba.
 - UI pokazuje zdarzenie zmiany podejścia i prosi o sprawdzenie problemu oraz zmienioną instrukcję po twardym zatrzymaniu. Zapisane pliki pozostają dostępne.
 - Ten mechanizm nie obejmuje wewnętrznej pętli Codex CLI. Nowe, jawnie zlecone zadanie jest nowym zakresem pracy; nie jest automatycznym wznowieniem.
+
+## Live — pierwszy rzeczywisty panel
+
+- LivePanel używa istniejącego strumienia zdarzeń watchTask, Reacta i ikon Lucide. Bez nowej zależności i bez symulowanych działań.
+- Filtry Files / Commands / Browser / Checks, maksymalnie 200 widocznych wpisów, wyniki terminala rozwijane na żądanie, przejście do wybranego pliku w istniejącym edytorze.
+- Codex JSONL przekazuje rozpoczęcie i wynik polecenia oraz bezpieczne ścieżki rzeczywistych zmian plików; sekrety środowiska są usuwane z nowych wpisów.
+- Zapisane screenshoty wykorzystują dotychczasowy CodexBrowser. Widok wyraźnie odróżnia screenshot od transmisji wideo. Odczyt nie tworzy środowiska; odpytywanie w tle i po zakończeniu zadania ograniczone.
+- Natywne details i animacje CSS z reduced-motion. Zmiana zakładki chroni niezapisane zmiany edytora.
+- 14 testów Node przeszło; kompilacja frontendu również. Testy backendu nadal bez płatnych wywołań i rzeczywistego uruchomienia Codex VM.
 
 ## Dalej
 

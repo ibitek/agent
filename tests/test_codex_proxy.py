@@ -115,6 +115,30 @@ def test_cli_config_and_real_event_shapes_do_not_invent_progress():
     assert store.events[0]['output']=='actual error' and store.events[0]['exit_code']==1
 
 
+def test_codex_live_events_use_real_started_commands_and_safe_changed_paths(monkeypatch):
+    monkeypatch.setenv('OPENAI_API_KEY', 'test-private-key')
+    store = Store()
+    events = Events(store, store.task)
+    payloads = [
+        {'type':'item.started','item':{'id':'cmd1','type':'command_execution','command':'echo test-private-key'}},
+        {'type':'item.completed','item':{'id':'cmd1','type':'command_execution','command':'echo test-private-key',
+            'exit_code':0,'aggregated_output':'test-private-key'}},
+        {'type':'item.completed','item':{'type':'file_change','status':'completed','changes':[
+            {'path':'/vercel/sandbox/project/src/App.jsx','kind':'update'},
+            {'path':'old.js','kind':'delete'}, {'path':'/outside/private.txt','kind':'update'},
+            {'path':'.env','kind':'update'}, {'path':'../escape.txt','kind':'update'}]}},
+        {'type':'item.completed','item':{'type':'reasoning','text':'private reasoning'}},
+    ]
+    stream=''.join(json.dumps(item)+'\n' for item in payloads)
+    events.write(stream[:19]); events.write(stream[19:])
+    assert [item['event'] for item in store.events] == ['command_started','command_result','tool_call','tool_call']
+    assert store.events[0]['command_id'] == store.events[1]['command_id'] == 'cmd1'
+    assert [item['path'] for item in store.events if item['event']=='tool_call'] == ['src/App.jsx','old.js']
+    assert store.events[-1]['tool'] == 'dev_delete_file'
+    assert 'test-private-key' not in json.dumps(store.events)
+    assert 'private reasoning' not in json.dumps(store.events)
+
+
 def test_preflight_reloads_cost_under_the_inference_lock(monkeypatch):
     store=Store();monkeypatch.setattr(proxy,'Store',lambda:store)
     class Request:
