@@ -33,7 +33,7 @@ where = ["src"]
 exclude = ["synvio.cloud.starter*"]
 
 [tool.setuptools.package-data]
-"synvio.cloud" = ["gateway_catalog.json", "starter/*.json", "starter/*.md", "starter/*.html", "starter/*.js", "starter/src/*.jsx", "starter/src/*.css", "starter/src/lib/*.js", "starter/src/components/ui/*.jsx"]
+"synvio.cloud" = ["gateway_catalog.json", "starter_catalog.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

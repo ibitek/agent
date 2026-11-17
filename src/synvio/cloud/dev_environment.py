@@ -10,19 +10,18 @@ from .common import public_error, validate_files
 from .store import Store
 
 router = APIRouter(prefix='/api/codex/environment')
-VERSION = 'kaelia-dev-1'
+VERSION = 'kaelia-dev-2'
 CACHE = '/vercel/sandbox/starter-cache'
 CODEX = '/vercel/sandbox/codex-runtime/node_modules/.bin/codex'
 HELPER = '/vercel/sandbox/kaelia-tools/visual_review.py'
 
 
 def starter_files():
-    root = Path(__file__).with_name('starter')
-    result = {}
-    for path in root.rglob('*'):
-        relative = path.relative_to(root)
-        if any(part in {'node_modules', 'dist', '.git'} for part in relative.parts) or not path.is_file(): continue
-        result[relative.as_posix()] = path.read_text(encoding='utf-8')
+    # A single explicit package asset survives serverless dependency tracing,
+    # which may omit nested package-lock.json / package.json files.
+    result = json.loads(Path(__file__).with_name('starter_catalog.json').read_text(encoding='utf-8'))
+    if not all(name in result for name in ('package.json', 'package-lock.json', 'src/main.jsx')):
+        raise ValueError('The managed starter assets are incomplete. No environment was allocated.')
     return validate_files(result)
 
 
@@ -36,13 +35,15 @@ def seed(task, files):
 
 def prepared(store):
     item = store.get_json('settings', 'developer-image') or {}
-    return item if item.get('version') == VERSION and item.get('expires_at', 0) > time.time() + 60 else None
+    return item if item.get('version') == VERSION and (item.get('expires_at') == 0 or item.get('expires_at', 0) > time.time() + 60) else None
 
 
 @router.get('')
 def status():
     item = prepared(Store())
+    assets = starter_files()
     return {'prepared': bool(item), 'version': VERSION, 'expires_at': item.get('expires_at') if item else None,
+            'starter_ready': 'package-lock.json' in assets, 'managed': True,
             'tools': ['Codex CLI', 'Node.js', 'Python', 'Playwright Chromium', 'React / Tailwind / shadcn/ui starter'],
             'compute_per_minute_usd': '0.005', 'inference_started': False}
 
@@ -53,11 +54,12 @@ async def prepare():
     if not tasks_ready('app'): raise HTTPException(503, 'Cloud execution is disabled.')
     store = Store()
     if prepared(store): return {'prepared': True, 'cached': True}
+    assets = starter_files()  # Validate packaged resources before any VM charge.
     if not store.call('SET', store.key('developer-prepare-lock'), '1', 'NX', 'EX', 290):
         raise HTTPException(409, 'The coding environment is already being prepared.')
     box = None
     try:
-        if not store.meter('developer-prepare:' + datetime.now(timezone.utc).strftime('%Y-%m-%d'), 2, 172800):
+        if not store.meter('developer-prepare:' + datetime.now(timezone.utc).strftime('%Y-%m-%d'), 3, 172800):
             raise HTTPException(429, 'The daily coding environment preparation allowance was reached.')
         from .browser_sessions import prepare as prepare_browser, image
         from .codex_cli import VERSION as CODEX_VERSION
@@ -71,7 +73,7 @@ async def prepare():
             network_policy=NetworkPolicy.custom(allow={'registry.npmjs.org': ()}), tags={'app': 'kaelia', 'purpose': 'developer-image'})
         await box.fs.mkdir(CACHE, recursive=True)
         async with box.fs.batch() as batch:
-            for path, text in starter_files().items(): batch.write_text(CACHE + '/' + path, text)
+            for path, text in assets.items(): batch.write_text(CACHE + '/' + path, text)
         await box.fs.mkdir('/vercel/sandbox/kaelia-tools', recursive=True)
         await box.fs.write_text(HELPER, Path(__file__).with_name('visual_review.py').read_text(encoding='utf-8'))
         from .browser_sessions import PYTHON
@@ -86,17 +88,17 @@ async def prepare():
         probe = "import socket,time\nfor i in range(20):\n try:\n  socket.create_connection(('127.0.0.1',4173),timeout=.1).close();break\n except OSError:time.sleep(.1)\nelse:raise RuntimeError('Local preview did not start')"
         await box.run_command('python3', ['-c', probe], env={}, capture_output=True, check=True, kill_after=5)
         await box.run_command(PYTHON, [HELPER, '--url', 'http://127.0.0.1:4173', '--root', CACHE], env={}, capture_output=True, check=True, kill_after=25)
-        snapshot = await box.snapshot(expiration=86400)
+        snapshot = await box.snapshot(expiration=0)
         await box.stop()
         store.put_json('settings', 'developer-image', {'snapshot_id': snapshot.id, 'version': VERSION,
-            'expires_at': time.time() + 86400, 'producer_name': box.name, 'validation': 'built_and_rendered'}, expiry=86400)
+            'expires_at': 0, 'producer_name': box.name, 'validation': 'built_and_rendered'}, expiry=0)
         return {'prepared': True, 'cached': False}
     except HTTPException: raise
     except Exception as exc:
         if box is not None: await box.destroy()
         if isinstance(exc, subprocess.CalledProcessError):
             details = str(exc.stderr or '') + '\n' + str(exc.stdout or '')
-            exc = RuntimeError(str(exc) + '\n' + details[-1600:])
+            exc = RuntimeError(str(exc) + '\n' + details[:1100] + '\n' + details[-500:])
         raise HTTPException(503, public_error(exc)) from None
     finally:
         store.call('DEL', store.key('developer-prepare-lock'))

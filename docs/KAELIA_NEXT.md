@@ -4,7 +4,7 @@ Aktualizacja 17 listopada 2026: użytkownik wznowił pracę. Ukończono etap nat
 
 ## Stan zweryfikowany
 
-- 435 testów Python offline przeszły, wraz z testami rzeczywistych struktur SDK, checkpointów przed/po zapisie, limitu czasu i operacji, migracji starego stanu oraz prywatności odpowiedzi API.
+- 437 testów Python offline przeszły, wraz z testami rzeczywistych struktur SDK, checkpointów przed/po zapisie, limitu czasu i operacji, migracji starego stanu oraz prywatności odpowiedzi API.
 - Kompilacja frontendu przeszła. Nie wykonano płatnej próby modelu; zgodność z rzeczywistą odpowiedzią dostawcy pozostaje osobną walidacją.
 - resume_checkpoint nie jest zwracany przez publiczny odczyt zadania ani historię. Recovery pobiera go wewnętrznie.
 - Potwierdzone odrzucenia żądania przez OpenAI zwalniają rezerwację; timeout i błędy serwera zachowują nieznany koszt i blokują automatyczne powtórzenie.
@@ -38,6 +38,14 @@ Aktualizacja 17 listopada 2026: użytkownik wznowił pracę. Ukończono etap nat
 - Kontrola wizualna nie jest dowodem jakości estetycznej ani testów interakcji. Agent otrzymuje instrukcję oglądania obu screenshotów, poprawiania błędów i testowania wymaganych interakcji; browser_verified nie jest automatycznie ustawiane na true.
 - Live potrafi pokazać desktop/mobile. Identyczne screenshoty nie produkują kolejnych fikcyjnych zdarzeń. Kontekst Codexa kompaktowany przy 64k zamiast 900k tokenów.
 - Testy SDK/API są offline; rzeczywiste przygotowanie obrazu wymaga osobnego potwierdzenia wyniku po wdrożeniu. Nie uruchomiono modelu.
+
+## Managed runtime v2 — bez instalacji przez użytkownika
+
+- Zwykły interfejs nie zawiera przycisku przygotowania. Codex zapewnia środowisko automatycznie, zanim rozpocznie pracę modelu; środowisko narzędzi nie wygasa codziennie.
+- Wspólny obraz jest wersjonowany i zapisywany bez terminu wygaśnięcia. Aktywne maszyny zadań pozostają krótkotrwałe. Retencja snapshotu może mieć koszt magazynu u dostawcy; nie jest obietnicą zerowej opłaty.
+- Starter jest dostarczany jako jeden jawny zasób starter_catalog.json, aby tracing wdrożenia nie pomijał zagnieżdżonych package.json/package-lock.json. Katalog zawiera pełną licencję oraz dokładny lockfile.
+- Preflight zasobów odbywa się przed przydziałem VM. Dzienny limit przygotowań wynosi 3, a zadania mają dotychczasowe limity kosztu i czasu. Nie stosujemy automatycznej pętli nieudanych instalacji.
+- Dwie pierwsze rzeczywiste próby przygotowania obrazu zatrzymały się na npm ci. Nie oznaczono obrazu jako gotowego. Komunikaty instalatora są teraz ograniczone i redagowane z zachowaniem początku oraz końca błędu. Wynik rzeczywistego przygotowania v2 wymaga potwierdzenia po wdrożeniu.
 
 ## Dalej
 

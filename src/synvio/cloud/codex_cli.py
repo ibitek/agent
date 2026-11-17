@@ -113,6 +113,12 @@ async def run_async(store,task,baseline):
     browser=task.get('model_id','').startswith('codex-browser:')
     from .dev_environment import prepared as developer_image, seed, CODEX, HELPER, CACHE
     prepared_developer = developer_image(store)
+    if not prepared_developer:
+        from .dev_environment import prepare as prepare_developer
+        store.event(task['id'], {'event':'environment_preparing','text':'Kaelia is preparing the managed workspace. No model call has started.'})
+        await prepare_developer()
+        prepared_developer = developer_image(store)
+        if not prepared_developer: raise ValueError('The managed workspace could not be prepared. Saved files are preserved.')
     browser = browser or bool(prepared_developer and task.get('runtime') in {'web', 'app'})
     options={}
     if prepared_developer:

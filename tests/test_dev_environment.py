@@ -10,6 +10,7 @@ from synvio.cloud.visual_review import local_url, inspect
 
 
 def test_starter_has_valid_vite_entry_exact_versions_and_official_component_license():
+    from pathlib import Path
     files = dev.starter_files()
     validate_app(files)
     package = json.loads(files['package.json'])
@@ -19,6 +20,10 @@ def test_starter_has_valid_vite_entry_exact_versions_and_official_component_lice
     assert 'MIT License' in files['LICENSE.shadcn.md']
     assert 'src/components/ui/button.jsx' in files
     assert not any('node_modules' in name or name.startswith('dist/') for name in files)
+    source = Path(dev.__file__).with_name('starter')
+    for name, content in files.items():
+        if (source/name).is_file():
+            assert (source/name).read_text(encoding='utf-8') == content
 
 
 def test_larger_built_artifact_does_not_relax_source_file_limits():
@@ -54,6 +59,13 @@ def test_environment_status_is_read_only_and_expired_images_are_not_ready(client
     assert client.get('/api/codex/environment').json()['prepared']
     store.put_json('settings','developer-image', {'version':'old','expires_at':time.time()+3600,'snapshot_id':'cached'})
     assert not client.get('/api/codex/environment').json()['prepared']
+
+
+def test_managed_toolchain_does_not_expire_and_require_daily_user_installation(client):
+    login(client)
+    Store().put_json('settings','developer-image', {'version':dev.VERSION,'expires_at':0,'snapshot_id':'installed'})
+    response=client.get('/api/codex/environment').json()
+    assert response['prepared'] and response['managed'] and response['starter_ready']
 
 
 @pytest.mark.parametrize('install_failure', [False, True])
