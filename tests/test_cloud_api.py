@@ -409,6 +409,59 @@ def test_unified_greeting_is_free_english_durable_and_idempotent(client, monkeyp
     assert client.post("/api/assistant", json=payload).status_code == 409
 
 
+def test_auto_routes_project_edit_to_codex_without_routing_inference(client, monkeypatch):
+    login(client)
+    monkeypatch.setenv("SYNVIO_ALLOW_EXPENSIVE_MODELS", "1")
+    cloud.get_store().put_json("codex-access", "project", {
+        "models": {"gpt-6.1-sol": {"available": True}},
+    })
+    calls = assistant_engine(monkeypatch, [])
+    response = client.post("/api/assistant", json={
+        "request_id": "1" * 32, "message": "Build an interactive website",
+        "model_id": "auto", "model_budget_usd": 0.14,
+    })
+    assert response.status_code == 200, response.text
+    task = cloud.get_store().get(response.json()["task"]["id"])
+    assert (task["model_id"], task["runtime"], task["model_budget_usd"]) == (
+        "codex:gpt-6.1-sol", "app", 0.14,
+    )
+    assert not calls
+
+
+def test_auto_drafts_general_content_in_chat(client, monkeypatch):
+    login(client)
+    calls = assistant_engine(monkeypatch, [{"action": "reply", "text": "Hello team"}])
+    response = client.post("/api/assistant", json={
+        "request_id": "2" * 32, "message": "Write an email to the team",
+        "model_id": "auto",
+    })
+    assert response.status_code == 200, response.text
+    assert response.json()["task"] is None
+    assert len(calls) == 1 and calls[0][1]["model"] == "gpt-4o-mini"
+
+
+def test_openjarvis_documentation_context_reaches_metered_reply(client, monkeypatch):
+    from synvio.cloud import assistant
+
+    login(client)
+    url = "https://developers.openai.com/api/docs/guides/prompt-caching"
+
+    def lookup(topic):
+        assert topic == "Responses API prompt caching"
+        return [{"url": url, "title": "Prompt caching", "excerpt": "Cache exact prefixes."}]
+
+    monkeypatch.setattr(assistant, "lookup", lookup)
+    calls = assistant_engine(monkeypatch, [{"action": "reply", "text": "Cache exact prefixes."}])
+    response = client.post("/api/assistant", json={
+        "request_id": "3" * 32, "message": "Sprawdź w dokumentacji OpenAI: Responses API prompt caching",
+        "model_id": "auto",
+    })
+    assert response.status_code == 200, response.text
+    assert response.json()["task"] is None
+    assert response.json()["message"]["inspection"] == ["Searched OpenAI documentation (MCP)"]
+    assert len(calls) == 1 and any(url in message.content for message in calls[0][0])
+
+
 def test_unified_inspection_reads_real_files_without_writes_or_tests(client, monkeypatch):
     login(client)
     store = cloud.get_store()

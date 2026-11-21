@@ -12,6 +12,7 @@ from .edit_safety import check_replacement
 from .followups import prompt_for
 from .sandbox_runner import BoundedOutput
 from .codex_proxy import provision
+from .docs_mcp import FETCH, SEARCH, URL as DOCS_URL
 
 VERSION='0.169.0'
 ROOT='/vercel/sandbox/project'
@@ -49,6 +50,8 @@ starter projects. Preserve an existing repository's stack. The starter is a foun
 not a finished result: replace its placeholder introduction with the actual requested product.
 When browser tooling is available, inspect the real page; save a screenshot at
 /vercel/sandbox/project/synvio-preview.png. Do not claim browser testing without doing it.
+Use OpenAI Docs MCP for relevant public API documentation. Send only generic
+technical queries and public documentation URLs, never project content or secrets.
 '''
 
 
@@ -62,6 +65,9 @@ def config(model,base_url):
         '[model_providers.synvio]','name = "SYNVIO metered OpenAI"','base_url = '+json.dumps(base_url),
         'wire_api = "responses"','env_key = "SYNVIO_PROXY_TOKEN"','requires_openai_auth = false',
         'request_max_retries = 0','stream_max_retries = 0','stream_idle_timeout_ms = 90000',
+        '[mcp_servers.openai_docs]', 'url = ' + json.dumps(DOCS_URL),
+        'enabled_tools = ' + json.dumps([SEARCH, FETCH]),
+        'startup_timeout_sec = 8', 'tool_timeout_sec = 12',
     ])+'\n'
 
 
@@ -128,7 +134,7 @@ async def run_async(store,task,baseline):
         prepared=image(store)
         if not prepared: raise ValueError('Prepare the browser environment in Browser first, then resume this task. No model call was sent.')
         options['source']=SnapshotSource(snapshot_id=prepared['snapshot_id'])
-    domains={name:() for name in ['registry.npmjs.org','pypi.org','files.pythonhosted.org','github.com','raw.githubusercontent.com',urlsplit(origin).hostname]}
+    domains={name:() for name in ['registry.npmjs.org','pypi.org','files.pythonhosted.org','github.com','raw.githubusercontent.com',urlsplit(origin).hostname,urlsplit(DOCS_URL).hostname]}
     files, seeded = seed(task, baseline)
     events=Events(store,task)
     stderr=BoundedOutput()

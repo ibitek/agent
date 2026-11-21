@@ -25,10 +25,14 @@ def starter_files():
     return validate_files(result)
 
 
+def prefers_plain_web(task):
+    return bool(re.search(r'plain html|vanilla|without (?:react|framework|libraries)|bez (?:react|bibliotek)|czyst\w* html', task, re.I))
+
+
 def seed(task, files):
     if task.get('runtime') not in {'app', 'web'} or any(path.lower() not in {'readme.md', 'readme.txt'} for path in files):
         return dict(files), False
-    if re.search(r'plain html|vanilla|without (?:react|framework|libraries)|bez (?:react|bibliotek)|czyst\w* html', task['task'], re.I):
+    if prefers_plain_web(task['task']):
         return dict(files), False
     return {**starter_files(), **files}, True
 

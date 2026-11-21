@@ -21,7 +21,7 @@ export default function ChatApp(){
   const [tasks,setTasks]=useState([]),[history,setHistory]=useState([]),[projects,setProjects]=useState([]),[conversationId,setConversationId]=useState(null),[messages,setMessages]=useState([])
   const [selected,setSelected]=useState(null),[eventState,setEventState]=useState({taskId:null,items:[],complete:false})
   const [images,setImages]=useState([]),imageInput=useRef(null)
-  const [prompt,setPrompt]=useState(''),[modelId,setModelId]=useState('openai:gpt-4.1-mini'),[budget,setBudget]=useState(readSpendCap)
+  const [prompt,setPrompt]=useState(''),[modelId,setModelId]=useState('auto'),[budget,setBudget]=useState(readSpendCap)
   const [loading,setLoading]=useState(false),[opening,setOpening]=useState(false),[preparing,setPreparing]=useState(false),[error,setError]=useState('')
   const [environments,setEnvironments]=useState(false),[details,setDetails]=useState(true),[tab,setTab]=useState('preview'),[mobile,setMobile]=useState(false)
   const [previewRuntime,setPreviewRuntime]=useState({taskId:null,items:[]}),[previewNonce,setPreviewNonce]=useState(0)

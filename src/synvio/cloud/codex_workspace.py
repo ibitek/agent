@@ -1,7 +1,7 @@
 """Read-only Codex model checks and authorized workspace screenshots."""
 import os
 from fastapi import APIRouter
-from .common import public_error
+from .common import AUTO_CODEX_MODEL, public_error
 from .store import Store
 
 router=APIRouter(prefix='/api')
@@ -10,6 +10,27 @@ router=APIRouter(prefix='/api')
 def client():
     from openai import OpenAI
     return OpenAI(api_key=os.environ.get('OPENAI_API_KEY'), base_url='https://api.openai.com/v1', max_retries=0, timeout=25)
+
+
+def automatic_edit_model(store):
+    fallback = 'openai:low'
+    if os.environ.get('SYNVIO_ALLOW_EXPENSIVE_MODELS') != '1' or not os.environ.get('OPENAI_API_KEY'):
+        return fallback
+    cached = store.get_json('codex-access', 'project') or {}
+    model = (cached.get('models') or {}).get(AUTO_CODEX_MODEL)
+    if model is None:
+        from openai import APIError
+
+        model = store.get_json('codex-access', 'auto')
+    if model is None:
+        try:
+            with client() as api:
+                api.with_options(timeout=5).models.retrieve(AUTO_CODEX_MODEL)
+            model = {'available': True}
+        except APIError:
+            model = {'available': False}
+        store.put_json('codex-access', 'auto', model, expiry=300)
+    return 'codex:' + AUTO_CODEX_MODEL if model.get('available') else fallback
 
 
 @router.get('/codex/status')

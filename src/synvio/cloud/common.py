@@ -11,6 +11,8 @@ MODELS = {"openai:low": "gpt-4o-mini", "openai:medium": "gpt-4o", "openai:high":
 MODELS.update({"openai:gpt-4.1-mini": "gpt-4.1-mini", "openai:gpt-4.1": "gpt-4.1"})
 MODELS.update({'openai:gpt-6.1-sol':'gpt-6.1-sol','openai:gpt-6-astra':'gpt-6-astra',
                'codex-browser:gpt-6.1-sol':'gpt-6.1-sol','codex:gpt-6.1-sol':'gpt-6.1-sol','codex:gpt-6-astra':'gpt-6-astra'})
+AUTO_MODEL = "auto"
+AUTO_CODEX_MODEL = "gpt-6.1-sol"
 PROJECT = "project"
 MAX_FILE_BYTES = 256 * 1024
 MAX_PROJECT_BYTES = 2 * 1024 * 1024
@@ -30,6 +32,8 @@ def local_reply() -> dict:
 
 
 def resolve_model(model_id: str) -> str:
+    if model_id == AUTO_MODEL:
+        model_id = "openai:low"
     if model_id.startswith('gateway:'):
         from .gateway import SUPPORTED, connected
         name = model_id.removeprefix('gateway:')
@@ -50,7 +54,12 @@ def model_catalog() -> list[dict]:
     from .metering import RATES
     from .retail import service_amount
     ready = bool(os.environ.get("OPENAI_API_KEY", "").strip())
-    result = []
+    result = [{
+        "id": AUTO_MODEL, "label": "Auto", "provider": "openai", "engine": "auto",
+        "available": ready, "unavailable_reason": "The model API key is not configured.",
+        "capabilities": {"images": True},
+        "description": "OpenJarvis with GPT-4o mini for general requests. Codex with GPT-6.1 Sol for project edits when available. Uses your Wallet limit.",
+    }]
     try:
         from .store import Store
         access = Store().get_json('codex-access','project') or {}
