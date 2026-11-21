@@ -29,6 +29,7 @@ class Store:
             self.lock=True; return True
         self.lock=False
     def write_cost(self,value,cost): self.task['cost_record']=cost
+    def fields(self,value,**fields): self.task.update(fields)
     def event(self,value,event): self.events.append(event)
 
 
@@ -49,6 +50,8 @@ def test_unlimited_proxy_reports_no_artificial_budget():
     result=proxy.record(task,[],Decimal('123.45'),Decimal(0))
     assert result['budget_usd'] is None and result['service_budget_usd'] is None
     assert result['estimated_cost_usd']=='123.450000000'
+    data, _ = proxy.estimate(task, {'model': task['model'], 'input': 'hello'})
+    assert data['max_output_tokens'] == 32768
 
 
 def test_fixed_model_and_bounded_output_even_if_payload_requests_more():
@@ -96,7 +99,7 @@ def test_reservation_before_upstream_and_unknown_usage_blocks_retry(monkeypatch,
     state=store.task['cost_record']['calls'][0]['state']
     assert state=={200:'recorded',400:'rejected',500:'unresolved'}[provider_status]
     if provider_status==500:
-        with pytest.raises(HTTPException,match='429'): asyncio.run(execute())
+        with pytest.raises(HTTPException,match='409'): asyncio.run(execute())
         assert len(sent)==1
     assert b'backend-only' not in body
 

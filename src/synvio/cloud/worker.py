@@ -13,6 +13,7 @@ from .store import Store
 from .metering import MeteredEngine
 from .followups import prompt_for
 from .persona import PERSONA
+from .interruptions import check_paused
 
 
 def run(task_id):
@@ -33,6 +34,7 @@ def run(task_id):
         if source is None:
             raise RuntimeError("The previous file snapshot expired. No model was called.")
         baseline = validate_files(source)
+        check_paused(store, task_id)
         if not store.get_json("baseline", task_id):
             store.put_json("baseline", task_id, baseline)
         workspace = Workspace.from_files(baseline, root=Path(temporary.name) / "project")
@@ -48,13 +50,15 @@ def run(task_id):
                 def persist_web_cost(event):
                     store.write_cost(task_id,event)
                 meter = MeteredEngine(engine, task["model"], task.get("model_budget_usd", 0.10), persist_web_cost)
-                return build(store, task, baseline, meter)
+                return build(store, task, baseline, meter, check_stop=lambda: check_paused(store, task_id))
         # Test infrastructure must be ready before opening the paid model engine.
         runner = VercelTestRunner(workspace, timeout=policy["test_timeout_seconds"])
+        runner.usage_owner = (store, task_id)
         runner.check_available()
         if task.get("operation") == "verify":
             started = time.monotonic()
             outcome = runner.run()
+            check_paused(store, task_id)
             test = outcome.to_dict()
             content = project_files(workspace)
             # Verification is read-only: do not publish a global project update.
@@ -83,6 +87,7 @@ def run(task_id):
                     store.event(task_id, {"event": "preview_updated"})
             agent = DeveloperAgent(engine=metered, workspace=workspace, config=config, model=task["model"], test_runner=runner, on_event=live_event)
             report = agent.fix(PERSONA + "\n\n" + prompt_for(task))
+        check_paused(store, task_id)
         content = project_files(workspace)
         result = redact_data(report.to_dict())
         result["task"] = task["task"]

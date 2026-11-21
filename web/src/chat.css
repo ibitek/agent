@@ -59,3 +59,28 @@
 .resume-work button:not(:disabled):hover{transform:translateY(-1px);border-color:var(--accent-border)}
 @keyframes activity-arrive{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
 @media(prefers-reduced-motion:reduce){.live-work-progress>div,.work-pause-note{animation:none}.resume-work button{transition:none;transform:none!important}}
+
+.run-usage {
+  display: block;
+  padding: .35rem 0;
+  font-variant-numeric: tabular-nums;
+}
+.run-usage strong { color: currentColor; }
+.pause-work-button {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  margin-top: .35rem;
+  padding: .4rem .65rem;
+  border: 1px solid currentColor;
+  border-radius: .5rem;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  transition: opacity .15s ease;
+}
+.pause-work-button:hover { opacity: .8; }
+.pause-work-button:disabled { opacity: .5; cursor: default; }
+@media (prefers-reduced-motion: reduce) {
+  .pause-work-button { transition: none; }
+}

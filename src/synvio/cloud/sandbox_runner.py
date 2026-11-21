@@ -2,10 +2,13 @@
 
 import os
 import time
+from contextlib import nullcontext
 
 from synvio.autodev.runner import MAX_CAPTURED_CHARS, TestOutcome, TestRunner
 
 from .common import safe_path, validate_files
+from .interruptions import check_paused
+from .retail import track_compute
 
 PYTHON = "/vercel/sandbox/.venv/bin/python"
 REMOTE_WORKSPACE = "/vercel/sandbox/project"
@@ -36,14 +39,26 @@ def project_files(workspace):
 
 
 class VercelTestRunner(TestRunner):
+    def track(self, time_limit):
+        usage_owner = getattr(self, 'usage_owner', None)
+        if not usage_owner:
+            return nullcontext()
+        store, task_id = usage_owner
+        return track_compute(store, task_id, 'tests', time_limit)
+
+    def check_stop(self):
+        if usage_owner := getattr(self, 'usage_owner', None):
+            check_paused(*usage_owner)
+
     def check_available(self):
-        from vercel.sandbox import NetworkPolicy, SnapshotSource
+        from vercel.sandbox import NetworkPolicy, SandboxResources, SnapshotSource
         from vercel.sandbox import sync as sandbox
 
         snapshot = os.environ.get("SYNVIO_SANDBOX_SNAPSHOT", "")
         if not snapshot:
             raise RuntimeError("The execution environment is not prepared; no model was called.")
-        with sandbox.create_sandbox(source=SnapshotSource(snapshot_id=snapshot), network_policy=NetworkPolicy.deny_all(), execution_time_limit=30, env={}, ports=[]) as box:
+        self.check_stop()
+        with sandbox.create_sandbox(source=SnapshotSource(snapshot_id=snapshot), network_policy=NetworkPolicy.deny_all(), execution_time_limit=30, resources=SandboxResources(vcpus=1, memory=2048), persistent=False, env={}, ports=[]) as box, self.track(30):
             box.run_command(PYTHON, ["-c", "import pytest; print(pytest.__version__)"], capture_output=True, kill_after=10, check=True)
 
     @property
@@ -65,7 +80,8 @@ class VercelTestRunner(TestRunner):
         started = time.monotonic()
         stdout, stderr = BoundedOutput(), BoundedOutput()
         # SDK credentials stay in the caller. env={} is the microVM environment.
-        with sandbox.create_sandbox(source=SnapshotSource(snapshot_id=snapshot), network_policy=NetworkPolicy.deny_all(), execution_time_limit=self.timeout + 20, resources=SandboxResources(vcpus=1, memory=2048), persistent=False, ports=[], env={}, tags={"app": "synvio", "purpose": "tests"}) as box:
+        self.check_stop()
+        with sandbox.create_sandbox(source=SnapshotSource(snapshot_id=snapshot), network_policy=NetworkPolicy.deny_all(), execution_time_limit=self.timeout + 20, resources=SandboxResources(vcpus=1, memory=2048), persistent=False, ports=[], env={}, tags={"app": "synvio", "purpose": "tests"}) as box, self.track(self.timeout + 20):
             box.fs.mkdir(REMOTE_WORKSPACE, recursive=True)
             with box.fs.batch() as batch:
                 for name, content in files.items():

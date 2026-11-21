@@ -121,6 +121,7 @@ def validate_app(files):
 async def build(store, task_id, request_id, files):
     from vercel import sandbox
     from vercel.sandbox import NetworkPolicy, SandboxResources
+    from .retail import track_async_compute
     files = validate_app(files)
     started = time.monotonic()
     def event(phase, **values):
@@ -131,7 +132,7 @@ async def build(store, task_id, request_id, files):
         async with sandbox.create_sandbox(persistent=False, execution_time_limit=160,
                 resources=SandboxResources(vcpus=1, memory=2048), ports=[], env={},
                 network_policy=NetworkPolicy.custom(allow={'registry.npmjs.org': ()}),
-                tags={'app':'synvio','purpose':'build-preview'}) as box:
+                tags={'app':'synvio','purpose':'build-preview'}) as box, track_async_compute(store, task_id, 'build', 160):
             await box.fs.mkdir(ROOT, recursive=True)
             async with box.fs.batch() as batch:
                 for path, content in files.items():

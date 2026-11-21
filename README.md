@@ -37,7 +37,7 @@ W **Settings → Environment Variables** dodaj dla środowiska Production:
 | `SYNVIO_SESSION_SECRET` | Inny losowy sekret, co najmniej 32 znaki |
 | `OPENAI_API_KEY` | Twój klucz OpenAI |
 | `SYNVIO_ENABLE_TASKS` | `1`, jeśli chcesz uruchamiać zadania i przygotować środowisko testów |
-| `SYNVIO_DAILY_REQUEST_LIMIT` | `10` lub mniejszy limit na początek |
+| `SYNVIO_DAILY_REQUEST_LIMIT` | Opcjonalny limit administratora. Pozostaw nieustawiony, aby go wyłączyć. |
 | `SYNVIO_ALLOW_EXPENSIVE_MODELS` | `0` |
 
 Nie umieszczaj wartości w kodzie, repozytorium ani w czacie. Hasło do SYNVIO i klucz OpenAI to **dwie różne rzeczy**. Aplikacja bez ustawionego hasła i sekretu nie udostępni prywatnego API.

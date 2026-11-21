@@ -6,7 +6,12 @@ from types import SimpleNamespace
 
 import pytest
 from synvio.cloud.app_build import build, validate_app
-from test_web_builder import Store
+from test_web_builder import Store as BuilderStore
+
+
+class Store(BuilderStore):
+    def get(self, key):
+        return self.result
 
 FILES = {'package.json':json.dumps({'scripts':{'build':'vite build'},'devDependencies':{'vite':'6.4.6'}}), 'index.html':'<div id="root"></div><script type="module" src="/src/main.jsx"></script>', 'src/main.jsx':'document.getElementById("root").textContent="Hello"'}
 

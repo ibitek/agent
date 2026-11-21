@@ -63,11 +63,11 @@ def test_task_preserves_unlimited_or_custom_budget_without_starting_paid_work(cl
     assert task['model_budget_usd']==budget and task['status']=='queued'
 
 
-def test_default_request_limit_is_twenty_service_cents():
+def test_conversation_requests_have_no_default_spending_cap():
     from synvio.cloud.assistant import Send
     from synvio.cloud.recovery import Resume
-    for request in [cloud.Task(task='Build a page'),Send(request_id='a'*32,message='Build a page'),Resume(request_id='a'*32)]:
-        assert request.model_budget_usd*1.3==pytest.approx(.2)
+    for request in [Send(request_id='a'*32,message='Build a page'),Resume(request_id='a'*32)]:
+        assert request.model_budget_usd is None
 
 
 def test_history_and_event_storage_use_bounded_round_trips(client,monkeypatch):
@@ -590,6 +590,39 @@ def test_verification_worker_never_opens_model_or_publishes_project_changes(clie
     assert result["report"]["estimated_cost_usd"] == 0
     assert store.project() == before
 
+def test_pause_blocks_new_model_requests_without_losing_settled_cost(client):
+    from synvio.cloud.interruptions import WorkPaused
+
+    login(client)
+    value = create(client).json()["id"]
+    store = cloud.get_store()
+    store.fields(value, status="running")
+    assert client.post(f"/api/tasks/{value}/pause").json()["pause_requested"]
+    with pytest.raises(WorkPaused):
+        store.write_cost(value, {"calls": [{"state": "reserved"}]})
+    settled = {"calls": [{"state": "recorded"}], "estimated_cost_usd": "0.01"}
+    store.write_cost(value, settled)
+    assert store.get(value)["cost_record"] == settled
+
+
+def test_live_compute_stops_accruing_after_workspace_closes(client, monkeypatch):
+    from synvio.cloud import retail
+
+    login(client)
+    value = create(client).json()["id"]
+    store = cloud.get_store()
+    start = time.time()
+    now = [start]
+    monkeypatch.setattr(retail.time, "time", lambda: now[0])
+    with retail.track_compute(store, value, "codex", 205):
+        now[0] = start + 60
+        running = client.get(f"/api/tasks/{value}").json()["compute_usage"]
+        assert running == {"service_estimated_cost_usd": "0.003692780", "active": True}
+    now[0] += 60
+    settled = client.get(f"/api/tasks/{value}").json()["compute_usage"]
+    assert settled == {**running, "active": False}
+
+
 def test_static_worker_uses_real_file_loop_without_creating_sandbox(client, monkeypatch):
     from synvio.cloud import worker
     login(client)
@@ -725,4 +758,4 @@ def test_wallet_does_not_invent_balance_or_activate_payments(client):
     assert result['payments_enabled'] is False and result['balance_usd'] is None
     assert result['bonus_tiers'][0]=={'deposit_usd':'5','bonus_percent':2}
     assert result['bonus_tiers'][-1]=={'deposit_usd':'100','bonus_percent':20}
-    assert result['compute_price_per_minute_usd']=='0.005'
+    assert result['compute_price_per_minute_usd']=='0.003692000'

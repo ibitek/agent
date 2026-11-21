@@ -14,6 +14,7 @@ from .common import public_error
 from .metering import RATES, usd, usage_cost
 from .retail import service_amount
 from .store import Store
+from .interruptions import WorkPaused
 
 router=APIRouter(prefix='/api/codex-proxy')
 
@@ -31,7 +32,7 @@ def authorize(store,value,token):
     digest=hashlib.sha256(token.encode()).hexdigest()
     if not task or not hmac.compare_digest(digest,task.get('codex_proxy_digest','')):
         raise HTTPException(403,'Invalid task credential.')
-    if task['status']!='running' or time.time()>task['deadline'] or not task.get('model_id','').startswith(('codex:','codex-browser:')):
+    if task['status']!='running' or task.get('pause_requested') or time.time()>task['deadline'] or not task.get('model_id','').startswith(('codex:','codex-browser:')):
         raise HTTPException(409,'This task is no longer accepting model requests.')
     return task
 
@@ -57,7 +58,8 @@ def estimate(task,payload):
         elif isinstance(value,list):
             for item in value: check_inputs(item)
     check_inputs(payload.get('input'))
-    limit=min(max(int(payload.get('max_output_tokens') or 4096),16),4096)
+    maximum = 32768 if task.get('model_budget_usd') is None else 4096
+    limit=min(max(int(payload.get('max_output_tokens') or maximum),16),maximum)
     data={**payload,'model':task['model'],'max_output_tokens':limit,'service_tier':'default','store':False,'stream':True,'max_tool_calls':1}
     # Inline image bytes are not text tokens. Reserve a conservative image bound.
     image_count=0
@@ -110,11 +112,20 @@ async def response(value:str,request:Request):
         spent=Decimal(previous.get('estimated_cost_usd','0'))
         unknown=Decimal(previous.get('unresolved_reservation_usd','0'))
         calls=list(previous.get('calls') or [])
-        if unknown>0 or any(c.get('reservation_exceeded') for c in calls) or (task['model_budget_usd'] is not None and spent+reserve>Decimal(str(task['model_budget_usd']))):
-            raise HTTPException(429,'Task spending limit reached, or previous provider usage is unresolved. No model call was sent.')
+        if unknown>0 or any(c.get('reservation_exceeded') for c in calls):
+            message = 'Previous model usage needs review. Saved work is safe. No new model call was sent.'
+            store.fields(value, failure_kind='usage_review', pause_message=message)
+            raise HTTPException(409, message)
+        if task['model_budget_usd'] is not None and spent+reserve>Decimal(str(task['model_budget_usd'])):
+            message = 'This run still has a previous spending cap. Resume to continue with live usage tracking.'
+            store.fields(value, failure_kind='budget', pause_message=message)
+            raise HTTPException(429, message)
         entry={'sequence':len(calls)+1,'model':task['model'],'state':'reserved','reserved_usd':usd(reserve)}
         calls.append(entry)
         store.write_cost(value,record(task,calls,spent,reserve))
+    except WorkPaused as exc:
+        release()
+        raise HTTPException(409, str(exc)) from None
     except Exception:
         release();raise
 
@@ -128,6 +139,11 @@ async def response(value:str,request:Request):
                         entry.update(state='rejected',provider_status=upstream.status_code)
                         store.write_cost(value,record(task,calls,spent,Decimal(0)))
                         completed=True
+                        if upstream.status_code == 429:
+                            retry = upstream.headers.get('retry-after', '')
+                            wait = min(600, max(1, int(retry))) if retry.isdecimal() else 60
+                            store.fields(value, failure_kind='provider_rate_limit', retry_after=time.time()+wait,
+                                pause_message='OpenAI temporarily limited new requests. Your files are saved. You can resume after the cooldown.')
                         detail=(await upstream.aread())[:2000].decode('utf-8','replace')
                         text='OpenAI rejected the request with status '+str(upstream.status_code)+': '+public_error(ValueError(detail))[:800]
                         yield ('event: error\ndata: '+json.dumps({'type':'error','message':text})+'\n\n').encode()

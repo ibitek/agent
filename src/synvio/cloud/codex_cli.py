@@ -14,6 +14,8 @@ from .sandbox_runner import BoundedOutput
 from .codex_proxy import provision
 from .docs_mcp import FETCH, SEARCH, URL as DOCS_URL
 from .persona import PERSONA
+from .interruptions import WorkPaused, check_paused
+from .retail import track_async_compute
 
 VERSION='0.169.0'
 ROOT='/vercel/sandbox/project'
@@ -165,9 +167,10 @@ async def run_async(store,task,baseline):
     events=Events(store,task)
     stderr=BoundedOutput()
     last_screen_digest = None
+    check_paused(store, task['id'])
     async with sandbox.create_sandbox(persistent=False,execution_time_limit=205,
             resources=SandboxResources(vcpus=1,memory=2048),ports=[],env={},
-            network_policy=NetworkPolicy.custom(allow=domains),tags={'app':'synvio','purpose':'codex-cli'},**options) as box:
+            network_policy=NetworkPolicy.custom(allow=domains),tags={'app':'synvio','purpose':'codex-cli'},**options) as box, track_async_compute(store, task['id'], 'codex', 205):
         await box.fs.mkdir(ROOT,recursive=True)
         await box.fs.mkdir(HOME,recursive=True)
         async with box.fs.batch() as batch:
@@ -207,9 +210,17 @@ async def run_async(store,task,baseline):
             await box.fs.write_bytes(path,base64.b64decode(image.partition(',')[2]))
             args+=['--image',path]
         args.append(prompt)
+        check_paused(store, task['id'])
         proxy = provision(store, task)
+        process = None
+
+        def started_command(handle):
+            nonlocal process
+            process = handle
+
         command=asyncio.create_task(box.run_command(SETPRIV,[*DROP_CAPABILITIES, CODEX, *TERMINAL_POLICY, *args],cwd=ROOT,
-            env={'CODEX_HOME':HOME,'SYNVIO_PROXY_TOKEN':proxy},stdout=events,stderr=stderr,kill_after=max(30,175-(time.monotonic()-started))))
+            env={'CODEX_HOME':HOME,'SYNVIO_PROXY_TOKEN':proxy},stdout=events,stderr=stderr,
+            on_start=started_command, kill_after=max(30,175-(time.monotonic()-started))))
         async def snapshot():
             nonlocal files, last_screen_digest
             await box.run_command('python3',['-c',COLLECT],cwd=ROOT,env={},capture_output=True,check=True,kill_after=10)
@@ -248,7 +259,23 @@ async def run_async(store,task,baseline):
             except Exception: pass
         try:
             while not command.done():
-                await asyncio.sleep(4)
+                await asyncio.wait({command}, timeout=2)
+                try:
+                    check_paused(store, task['id'])
+                except WorkPaused:
+                    if process and not command.done():
+                        try:
+                            await process.terminate()
+                            await asyncio.wait_for(asyncio.shield(command), timeout=3)
+                        except Exception:
+                            if not command.done():
+                                await process.kill()
+                                await asyncio.wait({command}, timeout=3)
+                    try:
+                        await snapshot()
+                    except Exception as exc:
+                        store.event(task['id'], {'event': 'pause_checkpoint_warning', 'error': public_error(exc)})
+                    raise
                 if events.dirty:
                     events.dirty=False
                     await snapshot()
@@ -257,8 +284,7 @@ async def run_async(store,task,baseline):
         finally:
             if not command.done():
                 command.cancel()
-                try: await command
-                except asyncio.CancelledError: pass
+            await asyncio.gather(command, return_exceptions=True)
     for path,before in baseline.items():
         try: check_replacement(path,before,files.get(path,''),task['task'])
         except ValueError:
@@ -283,7 +309,6 @@ async def run_async(store,task,baseline):
         'files_created':[p for p in changed if p not in baseline],'files_modified':[p for p in changed if p in baseline],
         'files_deleted':[p for p in baseline if p not in files],'cost_record':cost,'duration_seconds':time.monotonic()-started,
         'attempt_details':[{'final_answer':events.error or events.answer or public_error(ValueError(stderr.value[-1800:])) or 'Saved Codex source.'}]}
-    store.fields(task['id'],codex_compute_estimate_usd=str(round((time.monotonic()-started)/60*.005,9)))
     store.finish(task,files,'completed' if success else 'paused',report)
     store.event(task['id'],{'event':'task_finished','status':'completed' if success else 'paused','success':success})
     return 0 if success else 1

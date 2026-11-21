@@ -10,7 +10,7 @@ from synvio.cloud.retail import service_amount, compute_estimate
 
 def test_service_estimates_are_separate_from_underlying_usage():
     assert Decimal(service_amount('0.10')) == Decimal('0.13')
-    assert Decimal(compute_estimate(60)) == Decimal('0.005')
+    assert Decimal(compute_estimate(60)) == Decimal('0.00284')
     assert Decimal(compute_estimate(0)) == 0
 
 

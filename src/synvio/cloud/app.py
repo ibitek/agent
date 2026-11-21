@@ -244,13 +244,13 @@ def cost_history():
 @app.get('/api/wallet')
 def wallet():
     from decimal import Decimal
-    from .retail import service_amount, compute_estimate, COMPUTE_PER_MINUTE
+    from .retail import service_amount, sandbox_usage, COMPUTE_PER_MINUTE
     usage = cost_history()
     records = [*usage.get('chat',[]), *[item.get('cost_record') or {} for item in usage.get('tasks',[])], *[item.get('cost_record') or {} for item in usage.get('editor',[])]]
     model_total = sum((Decimal(record.get('service_estimated_cost_usd') or service_amount(record.get('estimated_cost_usd','0'))) for record in records), Decimal(0))
     return {'currency':'USD','payments_enabled':False,'balance_usd':None,'model_usage_estimate_usd':str(model_total),
-            'compute_price_per_minute_usd':str(COMPUTE_PER_MINUTE),'compute_billing_unit':'second',
-            'compute_usage_estimate_usd':str(sum((Decimal(compute_estimate((get_store().get_json('application-build',task['id']) or {}).get('duration_seconds',0))) + Decimal(task.get('codex_compute_estimate_usd','0')) for task in get_store().history(50)),Decimal(0))),
+            'compute_price_per_minute_usd':service_amount(COMPUTE_PER_MINUTE),'compute_billing_unit':'second',
+            'compute_usage_estimate_usd':str(sum((Decimal(sandbox_usage(task, (get_store().get_json('application-build',task['id']) or {}).get('duration_seconds',0))['service_estimated_cost_usd']) for task in get_store().history(50)),Decimal(0))),
             'bonus_max_percent':20,'bonus_tiers':[{'deposit_usd':amount,'bonus_percent':bonus} for amount,bonus in [('5',2),('12.50',5),('25',10),('50',15),('100',20)]], 'usage_window':'Latest 50 records per source and latest build per run. Estimates at current service rates, not an invoice.'}
 
 
@@ -274,8 +274,9 @@ def task_row(store, value, item=None):
               'calls':[{**entry,'state':'rejected','provider_status':400} for entry in cost.get('calls',[])]}
         store.fields(value,cost_record=cost)
         item={**item,'cost_record':cost}
-    public = {key: value for key, value in item.items() if key not in {"images", "codex_proxy_digest", "resume_checkpoint"}}
-    return {**public, "image_count": len(item.get("images", [])), "cancellation_supported": item["status"] == "queued", "download_available": bool(item.get("report"))}
+    from .retail import sandbox_usage
+    public = {key: value for key, value in item.items() if key not in {"images", "codex_proxy_digest", "resume_checkpoint", "compute_codex", "compute_build", "compute_tests"}}
+    return {**public, "build_pending": bool(item.get("build_pending") and time.time() < item["deadline"]), "compute_usage": sandbox_usage(item), "image_count": len(item.get("images", [])), "cancellation_supported": item["status"] == "queued", "download_available": bool(item.get("report"))}
 
 
 @app.post("/api/tasks", status_code=202)
@@ -358,11 +359,13 @@ async def run_worker(store, value, oidc_token=None):
         return result.returncode
 
     try:
+        if os.environ.get("VERCEL") == "1":
+            store.fields(value, build_pending=True, updated_at=time.time())
         code = await asyncio.to_thread(execute)
         final = store.get(value)
         if final and final["status"] == "running":
             raise RuntimeError(f"The run exited without a report (code {code}).")
-        if os.environ.get("VERCEL") == "1" and final and final["status"] == "completed" and final.get("runtime") == "app" and final.get("operation") == "edit" and time.monotonic()-started < 100:
+        if os.environ.get("VERCEL") == "1" and final and final["status"] == "completed" and not final.get("pause_requested") and final.get("runtime") == "app" and final.get("operation") == "edit" and time.monotonic()-started < 100:
             try:
                 await build_application_preview(value,BuildPreview(request_id=value))
             except Exception as exc:
@@ -372,7 +375,11 @@ async def run_worker(store, value, oidc_token=None):
             store.fields(value, error=public_error(exc))
             store.event(value, {"event": "task_error", "error": public_error(exc)})
     finally:
-        store.release(value)
+        try:
+            if os.environ.get("VERCEL") == "1":
+                store.fields(value, build_pending=False, updated_at=time.time())
+        finally:
+            store.release(value)
 
 
 @app.post("/api/tasks/{value}/run")
@@ -429,6 +436,30 @@ def cancel(value: str):
     store.event(value, {"event": "task_cancelled"})
     store.release(value)
     return {"id": value, "status": "cancelled"}
+
+
+@app.post("/api/tasks/{value}/pause")
+def pause_task(value: str):
+    store = get_store()
+    task_row(store, value)
+    updated = store.call("EVAL", """
+local status=redis.call('HGET',KEYS[1],'status')
+if status=='"queued"' then
+    redis.call('HSET',KEYS[1],'status','"paused"','pause_requested','true','updated_at',ARGV[1])
+    return 2
+end
+if status=='"running"' and redis.call('HGET',KEYS[1],'pause_requested')~='true' then
+    redis.call('HSET',KEYS[1],'pause_requested','true','updated_at',ARGV[1])
+    return 1
+end
+return 0
+""", 1, store.key('task', value), time.time())
+    if updated == 2:
+        store.event(value, {'event': 'task_finished', 'status': 'paused', 'reason': 'user_requested'})
+        store.release(value)
+    elif updated == 1:
+        store.event(value, {'event': 'pause_requested', 'text': 'Pause requested. Saving progress.'})
+    return task_row(store, value)
 
 
 def report_files(item):
@@ -555,8 +586,8 @@ async def build_application_preview(value: str, body: BuildPreview):
     try:
         from datetime import datetime, timezone
         day = datetime.now(timezone.utc).strftime('%Y-%m-%d')
-        limit=min(max(int(os.environ.get('SYNVIO_DAILY_BUILD_LIMIT','20')),1),100)
-        if not store.meter('application-build:' + day, limit, 2*24*60*60):
+        configured = os.environ.get('SYNVIO_DAILY_BUILD_LIMIT')
+        if configured and not store.meter('application-build:' + day, min(max(int(configured),1),100), 2*24*60*60):
             raise HTTPException(429, 'The daily build safety limit has been reached. No VM was started. Configure SYNVIO_DAILY_BUILD_LIMIT on the server.')
         store.put_json('application-build', value, {'status':'building','request_id':body.request_id,'deadline':time.time()+210})
         work = _finish_build(store,value,body.request_id,files,lock)

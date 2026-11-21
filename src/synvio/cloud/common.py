@@ -58,7 +58,7 @@ def model_catalog() -> list[dict]:
         "id": AUTO_MODEL, "label": "Auto", "provider": "openai", "engine": "auto",
         "available": ready, "unavailable_reason": "The model API key is not configured.",
         "capabilities": {"images": True},
-        "description": "OpenJarvis with GPT-4o mini for general requests. Codex with GPT-6.1 Sol for project edits when available. Uses your Wallet limit.",
+        "description": "OpenJarvis with GPT-4o mini for general requests. Codex with GPT-6.1 Sol for project edits when available.",
     }]
     try:
         from .store import Store

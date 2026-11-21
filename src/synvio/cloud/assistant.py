@@ -46,7 +46,7 @@ class Send(BaseModel):
     parent_task_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
     message: str = Field(min_length=1, max_length=10000)
     model_id: str = "openai:low"
-    model_budget_usd: float | None = Field(default=0.20 / 1.30, gt=0, allow_inf_nan=False)
+    model_budget_usd: float | None = Field(default=None, gt=0, allow_inf_nan=False)
 
 
 def confirmation(message):
@@ -153,6 +153,16 @@ def history():
 @router.get("/conversations/{value}")
 def detail(value: str):
     return get_conversation(Store(), value)
+
+
+@router.get("/assistant/usage/{value}")
+def request_usage(value: str):
+    if not re.fullmatch(r"[a-f0-9]{32}", value):
+        raise HTTPException(404, "Usage not found.")
+    record = Store().get_json("chat-cost", value) or {}
+    return {key: record.get(key) for key in (
+        "service_estimated_cost_usd", "service_reserved_usd",
+    )}
 
 
 def files_for(store, conversation):
@@ -383,7 +393,8 @@ async def send(body: Send):
     except Exception as exc:
         if conversation is not None:
             text = exc.detail if isinstance(exc, HTTPException) else str(exc) if isinstance(exc, BudgetExceeded) else "The request could not be completed. It was not retried automatically."
-            conversation["messages"].append({"id": body.request_id + "-error", "role": "assistant", "content": text, "kind": "error", "created_at": time.time()})
+            cost = store.get_json("chat-cost", body.request_id)
+            conversation["messages"].append({"id": body.request_id + "-error", "role": "assistant", "content": text, "kind": "error", "cost_record": cost, "created_at": time.time()})
             conversation["updated_at"] = time.time()
             store.put_json("conversation", value, conversation)
         if isinstance(exc, HTTPException):

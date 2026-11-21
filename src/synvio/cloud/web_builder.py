@@ -46,7 +46,7 @@ APP_SYSTEM = SYSTEM.replace('Build the requested static website using plain HTML
 SOURCE_SYSTEM = SYSTEM.replace('Build the requested static website using plain HTML, CSS and JavaScript.', 'Edit the existing source repository according to the user request. Preserve its framework, language and dependencies.').replace('Use root index.html. No packages, servers, external scripts, imports or remote assets.', 'Do not convert the project to another framework. Read its existing manifests and relevant source first. You can edit text source and config files only; you cannot execute commands. Explicitly state that compilation and runtime tests were not run.')
 
 
-def build(store, task, baseline, engine):
+def build(store, task, baseline, engine, *, check_stop=lambda: None):
     from openjarvis.core.types import Message, Role
     started = time.monotonic()
     saved = task.get("resume_checkpoint") or {}
@@ -111,6 +111,7 @@ def build(store, task, baseline, engine):
             stop_reason = 'repair_limit_reached'
             checkpoint(pending)
             break
+        check_stop()
         if time.time() > task.get("deadline", float("inf")) - 8:
             answer = "Work paused before the execution deadline. Saved changes can be resumed."
             checkpoint(pending)
@@ -122,6 +123,7 @@ def build(store, task, baseline, engine):
         else:
             options = {'native_items': native.input_items()} if native else {'response_format': {"type": "json_object"}}
             result = engine.generate(messages, model=task['model'], max_tokens=6000, temperature=0.2, **options)
+            check_stop()
             if native:
                 try:
                     action = native.accept(result)

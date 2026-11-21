@@ -117,11 +117,15 @@ return 1
 if ARGV[1]=='1' then
  local status=redis.call('HGET',KEYS[1],'status')
  local deadline=redis.call('HGET',KEYS[1],'deadline')
+ if redis.call('HGET',KEYS[1],'pause_requested')=='true' then return -1 end
  if status~='"running"' or redis.call('GET',KEYS[2])~=ARGV[2] or (deadline and tonumber(deadline)<tonumber(ARGV[4])) then return 0 end
 end
 redis.call('HSET',KEYS[1],'cost_record',ARGV[3],'updated_at',ARGV[4])
 return 1
 """,2,self.key('task',task_id),self.key('project-lock'),'1' if reserved else '0',task_id,json.dumps(event),time.time())
+        if saved == -1:
+            from .interruptions import WorkPaused
+            raise WorkPaused('Paused at your request. No new model call was sent.')
         if not saved: raise RuntimeError('This worker no longer owns the run. No new model call was sent.')
         self.event(task_id,event)
 
@@ -163,7 +167,10 @@ return 1
         return int(count) <= limit
 
     def allow_paid_request(self):
+        configured = os.environ.get("SYNVIO_DAILY_REQUEST_LIMIT")
+        if not configured:
+            return True
         day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        limit = min(max(int(os.environ.get("SYNVIO_DAILY_REQUEST_LIMIT", "100")), 1), 1000)
+        limit = min(max(int(configured), 1), 1000)
         # Fresh counter version excludes the old routing+worker double charges.
         return self.meter(f"paid-v2:{day}", limit, 2 * 24 * 60 * 60)

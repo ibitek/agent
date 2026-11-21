@@ -33,7 +33,7 @@ export function watchTask(id, { getJSON, onSnapshot, schedule = setTimeout, canc
       } while (page.items.length === 500)
       if (controller.signal.aborted) return
       const items = [...events.values()].sort((a, b) => a.sequence - b.sequence)
-      const complete = TERMINAL.has(task.status) && items.some((event) => FINISHED.has(event.event))
+      const complete = TERMINAL.has(task.status) && !task.build_pending && !task.compute_usage?.active && items.some((event) => FINISHED.has(event.event))
       onSnapshot({ task, events: items, complete })
       failures = 0
       quiet = cursor === previousCursor ? Math.min(quiet + 1, 4) : 0
