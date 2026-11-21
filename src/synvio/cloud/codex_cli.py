@@ -20,7 +20,15 @@ ROOT='/vercel/sandbox/project'
 HOME='/vercel/sandbox/codex-state'
 SETPRIV = '/usr/bin/setpriv'
 DROP_CAPABILITIES = ['--inh-caps=-all', '--ambient-caps=-all']
-TERMINAL_PROBE = 'file=$(mktemp .kaelia-terminal.XXXXXX) && rm -- "$file"'
+TERMINAL_POLICY = ['-c', 'sandbox_mode="workspace-write"', '-c', 'sandbox_workspace_write.network_access=true']
+TERMINAL_PROBE = (
+    'file=$(mktemp .kaelia-terminal.XXXXXX) && rm -- "$file" || exit 1\n'
+    'if outside=$(mktemp /vercel/sandbox/.kaelia-terminal.XXXXXX 2>/dev/null); then\n'
+    '    rm -- "$outside"\n'
+    '    echo "The project sandbox allowed a write outside the project." >&2\n'
+    '    exit 1\n'
+    'fi'
+)
 COLLECT='''import json
 from pathlib import Path
 root=Path('/vercel/sandbox/project').resolve()
@@ -77,12 +85,15 @@ def config(model,base_url):
 
 async def check_terminal(box, codex):
     # Vercel starts commands with ambient capabilities; bubblewrap expects none.
+    # The standalone sandbox command otherwise defaults to read-only.
     result = await box.run_command(
-        SETPRIV, [*DROP_CAPABILITIES, codex, 'sandbox', '--', '/bin/sh', '-c', TERMINAL_PROBE],
+        SETPRIV, [*DROP_CAPABILITIES, codex, *TERMINAL_POLICY, 'sandbox', '--', '/bin/sh', '-c', TERMINAL_PROBE],
         cwd=ROOT, env={'CODEX_HOME': HOME}, capture_output=True, kill_after=8,
     )
     if result.returncode:
-        raise RuntimeError('The isolated Codex terminal failed its startup check. No model was called.')
+        details = redact_data((result.stderr or result.stdout or "").strip())[:500]
+        message = 'The isolated Codex terminal failed its startup check. No model was called.'
+        raise RuntimeError(f'{message} {details}' if details else message)
 
 
 class Events:
@@ -197,7 +208,7 @@ async def run_async(store,task,baseline):
             args+=['--image',path]
         args.append(prompt)
         proxy = provision(store, task)
-        command=asyncio.create_task(box.run_command(SETPRIV,[*DROP_CAPABILITIES, CODEX, *args],cwd=ROOT,
+        command=asyncio.create_task(box.run_command(SETPRIV,[*DROP_CAPABILITIES, CODEX, *TERMINAL_POLICY, *args],cwd=ROOT,
             env={'CODEX_HOME':HOME,'SYNVIO_PROXY_TOKEN':proxy},stdout=events,stderr=stderr,kill_after=max(30,175-(time.monotonic()-started))))
         async def snapshot():
             nonlocal files, last_screen_digest

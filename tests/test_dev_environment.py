@@ -59,12 +59,15 @@ def test_terminal_probe_retains_isolation_and_fails_before_a_model_can_run():
         async def run_command(self, executable, args, **kwargs):
             assert executable == "/usr/bin/setpriv"
             assert args[:2] == ["--inh-caps=-all", "--ambient-caps=-all"]
-            assert args[2:5] == [dev.CODEX, "sandbox", "--"]
+            assert args[2:9] == [
+                dev.CODEX, "-c", 'sandbox_mode="workspace-write"',
+                "-c", "sandbox_workspace_write.network_access=true", "sandbox", "--",
+            ]
             assert set(kwargs["env"]) == {"CODEX_HOME"}
             assert kwargs["cwd"] == codex_cli.ROOT
-            return NS(returncode=1)
+            return NS(returncode=1, stderr="Probe diagnostic", stdout="")
 
-    with pytest.raises(RuntimeError, match="No model was called"):
+    with pytest.raises(RuntimeError, match=r"No model was called\. Probe diagnostic"):
         asyncio.run(codex_cli.check_terminal(Box(), dev.CODEX))
 
 
