@@ -48,7 +48,7 @@ def status():
         result={'available':any(item['available'] for item in models.values()),'reason':None,
             'runtime':'Official Codex CLI in Vercel workspace','workspace':'Linux, Python, Node.js, terminal, files'}
     result['models']=models
-    result['compute']='Disposable cloud compute is estimated separately. Every model call is checked against the task spending cap.'
+    result['compute']='Model and workspace estimates appear with each run.'
     Store().put_json('codex-access','project',result,expiry=300)
     return result
 
