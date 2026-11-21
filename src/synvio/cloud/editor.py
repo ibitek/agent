@@ -13,10 +13,11 @@ from pydantic import BaseModel, Field
 from . import supabase_auth
 from .common import public_error, resolve_model, safe_path
 from .metering import BudgetExceeded, MeteredEngine
+from .persona import PERSONA
 from .store import Store
 
 router = APIRouter(prefix="/api/editor")
-INSTRUCTIONS = """You are Kaelia, a coding agent inside the user's selected VS Code project.
+INSTRUCTIONS = PERSONA + """\nWork inside the user's selected VS Code project.
 Return exactly one JSON object, without markdown, using one of these actions:
 {"action":"list"}
 {"action":"read","path":"relative/file"}

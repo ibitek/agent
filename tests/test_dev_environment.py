@@ -1,4 +1,5 @@
 import json
+import asyncio
 import time
 from types import SimpleNamespace as NS
 import pytest
@@ -41,6 +42,7 @@ def test_larger_built_artifact_does_not_relax_source_file_limits():
     ({'package.json':'{}'}, {'task':'Build a site','runtime':'app'}, False),
     ({'index.html':'working'}, {'task':'Build a site','runtime':'web'}, False),
     ({}, {'task':'Build using plain HTML','runtime':'web'}, False),
+    ({}, {'task':'Build using Svelte','runtime':'web'}, False),
     ({}, {'task':'Build Python tool','runtime':'python'}, False),
 ])
 def test_starter_never_replaces_an_existing_stack_or_explicit_static_request(baseline,task,expected):
@@ -48,6 +50,22 @@ def test_starter_never_replaces_an_existing_stack_or_explicit_static_request(bas
     assert applied is expected
     assert all(files[name] == content for name, content in baseline.items())
     if not applied: assert files == baseline
+
+
+def test_terminal_probe_retains_isolation_and_fails_before_a_model_can_run():
+    from synvio.cloud import codex_cli
+
+    class Box:
+        async def run_command(self, executable, args, **kwargs):
+            assert executable == "/usr/bin/setpriv"
+            assert args[:2] == ["--inh-caps=-all", "--ambient-caps=-all"]
+            assert args[2:5] == [dev.CODEX, "sandbox", "--"]
+            assert set(kwargs["env"]) == {"CODEX_HOME"}
+            assert kwargs["cwd"] == codex_cli.ROOT
+            return NS(returncode=1)
+
+    with pytest.raises(RuntimeError, match="No model was called"):
+        asyncio.run(codex_cli.check_terminal(Box(), dev.CODEX))
 
 
 def test_environment_status_is_read_only_and_expired_images_are_not_ready(client):

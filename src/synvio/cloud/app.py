@@ -196,7 +196,9 @@ async def chat(body: Chat):
         from synvio.config import SYNVIOConfig
         from .gateway import engine_for
 
-        system = "You are Kaelia. Default to English unless the user explicitly requests another language. Answer naturally. This legacy endpoint has no tools; never claim file changes or test results."
+        from .persona import PERSONA
+
+        system = PERSONA + "\nThis legacy endpoint has no tools; never claim file changes or test results."
         messages = [EngineMessage(role=Role.SYSTEM, content=system)]
         messages.extend(EngineMessage(role=Role(item.role), content=item.content) for item in body.history)
         messages.append(EngineMessage(role=Role.USER, content=body.message))

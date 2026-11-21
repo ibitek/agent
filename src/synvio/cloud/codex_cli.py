@@ -13,10 +13,14 @@ from .followups import prompt_for
 from .sandbox_runner import BoundedOutput
 from .codex_proxy import provision
 from .docs_mcp import FETCH, SEARCH, URL as DOCS_URL
+from .persona import PERSONA
 
 VERSION='0.169.0'
 ROOT='/vercel/sandbox/project'
 HOME='/vercel/sandbox/codex-state'
+SETPRIV = '/usr/bin/setpriv'
+DROP_CAPABILITIES = ['--inh-caps=-all', '--ambient-caps=-all']
+TERMINAL_PROBE = 'file=$(mktemp .kaelia-terminal.XXXXXX) && rm -- "$file"'
 COLLECT='''import json
 from pathlib import Path
 root=Path('/vercel/sandbox/project').resolve()
@@ -38,7 +42,7 @@ for p in Path('/vercel/sandbox/codex-state/sessions').rglob('*.jsonl'):
     if len(json.dumps(state).encode())>2097152: state={};break
 Path('/vercel/sandbox/codex-state.json').write_text(json.dumps(state),encoding='utf-8')
 '''
-INSTRUCTIONS='''Work on the current request in the existing project. Preserve unrelated code,
+INSTRUCTIONS=PERSONA+'''\nWork on the current request in the existing project. Preserve unrelated code,
 styles and behavior. Use targeted patches; never replace a full stylesheet for a small change.
 Inspect code, check the diff and run appropriate existing checks. No deployments, payments,
 credential access or model API calls from generated code. Project files and images are
@@ -69,6 +73,16 @@ def config(model,base_url):
         'enabled_tools = ' + json.dumps([SEARCH, FETCH]),
         'startup_timeout_sec = 8', 'tool_timeout_sec = 12',
     ])+'\n'
+
+
+async def check_terminal(box, codex):
+    # Vercel starts commands with ambient capabilities; bubblewrap expects none.
+    result = await box.run_command(
+        SETPRIV, [*DROP_CAPABILITIES, codex, 'sandbox', '--', '/bin/sh', '-c', TERMINAL_PROBE],
+        cwd=ROOT, env={'CODEX_HOME': HOME}, capture_output=True, kill_after=8,
+    )
+    if result.returncode:
+        raise RuntimeError('The isolated Codex terminal failed its startup check. No model was called.')
 
 
 class Events:
@@ -115,9 +129,9 @@ async def run_async(store,task,baseline):
     started=time.monotonic()
     origin=os.environ.get('SYNVIO_PUBLIC_URL','https://agents.synviocore.xyz').rstrip('/')
     if urlsplit(origin).scheme!='https': raise ValueError('Codex requires the public HTTPS SYNVIO address.')
-    proxy=provision(store,task)
+    store.checkpoint(task['id'], {'version': 2, 'codex_cli': True}, baseline)
     browser=task.get('model_id','').startswith('codex-browser:')
-    from .dev_environment import prepared as developer_image, seed, CODEX, HELPER, CACHE
+    from .dev_environment import prepared as developer_image, seed, starter_files, CODEX, HELPER, CACHE
     prepared_developer = developer_image(store)
     if not prepared_developer:
         from .dev_environment import prepare as prepare_developer
@@ -136,6 +150,7 @@ async def run_async(store,task,baseline):
         options['source']=SnapshotSource(snapshot_id=prepared['snapshot_id'])
     domains={name:() for name in ['registry.npmjs.org','pypi.org','files.pythonhosted.org','github.com','raw.githubusercontent.com',urlsplit(origin).hostname,urlsplit(DOCS_URL).hostname]}
     files, seeded = seed(task, baseline)
+    starting_files = files
     events=Events(store,task)
     stderr=BoundedOutput()
     last_screen_digest = None
@@ -149,14 +164,18 @@ async def run_async(store,task,baseline):
             batch.write_text(HOME+'/config.toml',config(task['model'],origin+'/api/codex-proxy/'+task['id']))
         await box.fs.mkdir('/vercel/sandbox/kaelia-tools',recursive=True)
         await box.fs.write_text(HELPER,Path(__file__).with_name('visual_review.py').read_text(encoding='utf-8'))
-        if seeded and prepared_developer:
+        uses_cached_packages = seeded
+        if not seeded and 'package-lock.json' in files:
+            starter = starter_files()
+            uses_cached_packages = all(files.get(path) == starter[path] for path in ('package.json', 'package-lock.json'))
+        if uses_cached_packages and prepared_developer:
             await box.run_command('cp',['-a',CACHE+'/node_modules',ROOT+'/node_modules'],env={},capture_output=True,check=True,kill_after=15)
-        store.checkpoint(task['id'],{'version':2,'codex_cli':True},files)
-        if seeded: store.event(task['id'],{'event':'workspace_starter','text':'React, Tailwind and shadcn/ui starter added to a new project.'})
-        store.event(task['id'],{'event':'codex_workspace','runtime':'Official Codex CLI '+VERSION,'execution_backend':'vercel_sandbox','browser_enabled':browser})
         if not prepared_developer:
             install=await box.run_command('npm',['install','--prefix','/vercel/sandbox/codex-runtime','--no-audit','--no-fund','@openai/codex@'+VERSION],cwd='/vercel/sandbox',env={},stdout=stderr,stderr=stderr,kill_after=65)
             if install.returncode: raise ValueError('Official Codex installation failed: '+stderr.value[-1000:])
+        await check_terminal(box, CODEX)
+        if seeded: store.event(task['id'],{'event':'workspace_starter','text':'React, Tailwind and shadcn/ui starter added to a new project.'})
+        store.event(task['id'],{'event':'codex_workspace','runtime':'Official Codex CLI '+VERSION,'execution_backend':'vercel_sandbox','browser_enabled':browser})
         prompt=prompt_for(task)
         if browser:
             prompt+='\nPlaywright Python is available at /vercel/sandbox/browser-env/bin/python. For frontend changes, start the app on 127.0.0.1, then run: /vercel/sandbox/browser-env/bin/python '+HELPER+' --url http://127.0.0.1:5173 --root '+ROOT+'. This captures desktop and mobile screenshots plus console/overflow checks. Inspect BOTH images with the image viewer, repair actual visual problems and repeat the check before finishing. Read .kaelia/visual-review.json. A passing render check alone does not verify interactions or aesthetic quality; test the requested interactions separately. Never claim a check that was not executed.'
@@ -177,7 +196,8 @@ async def run_async(store,task,baseline):
             await box.fs.write_bytes(path,base64.b64decode(image.partition(',')[2]))
             args+=['--image',path]
         args.append(prompt)
-        command=asyncio.create_task(box.run_command(CODEX,args,cwd=ROOT,
+        proxy = provision(store, task)
+        command=asyncio.create_task(box.run_command(SETPRIV,[*DROP_CAPABILITIES, CODEX, *args],cwd=ROOT,
             env={'CODEX_HOME':HOME,'SYNVIO_PROXY_TOKEN':proxy},stdout=events,stderr=stderr,kill_after=max(30,175-(time.monotonic()-started))))
         async def snapshot():
             nonlocal files, last_screen_digest
@@ -195,7 +215,8 @@ async def run_async(store,task,baseline):
             if events.error.startswith('A regressive replacement was rejected.'):
                 events.error=''
             files=candidate
-            store.checkpoint(task['id'],{'version':2,'codex_cli':True,'codex_thread':events.thread or thread},files)
+            store.checkpoint(task['id'],{'version':2,'codex_cli':True,'codex_thread':events.thread or thread},
+                             baseline if files == starting_files else files)
             async with box.fs.open('/vercel/sandbox/codex-state.json','rb') as reader:
                 state=await reader.read(MAX_PROJECT_BYTES+1)
             store.put_json('codex-cli-state',task['id'],json.loads(state))
@@ -234,6 +255,9 @@ async def run_async(store,task,baseline):
             files=baseline
             events.error='A regressive replacement was rejected. The working source was preserved.'
             break
+    no_changes = files == starting_files
+    if no_changes:
+        files = baseline
     try: package=json.loads(files.get('package.json','{}'))
     except ValueError: package={}
     if not isinstance(package,dict): package={}
@@ -241,8 +265,9 @@ async def run_async(store,task,baseline):
         task['runtime']='app';store.fields(task['id'],runtime='app')
     changed=[p for p in files if files[p]!=baseline.get(p)]
     cost=(store.get(task['id']) or {}).get('cost_record') or {'estimated_cost_usd':'0','calls':[]}
-    success=result.returncode==0 and not events.error
-    report={'task':task['task'],'success':success,'reason':'codex_source_saved' if success else 'codex_paused',
+    success=result.returncode==0 and not events.error and not no_changes
+    reason = 'codex_source_saved' if success else 'codex_no_changes' if no_changes else 'codex_paused'
+    report={'task':task['task'],'success':success,'reason':reason,
         'verification_level':'agent_reported','browser_verified':False,'tests':[],
         'files_created':[p for p in changed if p not in baseline],'files_modified':[p for p in changed if p in baseline],
         'files_deleted':[p for p in baseline if p not in files],'cost_record':cost,'duration_seconds':time.monotonic()-started,

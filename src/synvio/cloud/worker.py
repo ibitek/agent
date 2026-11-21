@@ -12,6 +12,7 @@ from .sandbox_runner import VercelTestRunner, project_files
 from .store import Store
 from .metering import MeteredEngine
 from .followups import prompt_for
+from .persona import PERSONA
 
 
 def run(task_id):
@@ -81,7 +82,7 @@ def run(task_id):
                     store.checkpoint(task_id,{"version":1,"restart_from_files":True},project_files(workspace))
                     store.event(task_id, {"event": "preview_updated"})
             agent = DeveloperAgent(engine=metered, workspace=workspace, config=config, model=task["model"], test_runner=runner, on_event=live_event)
-            report = agent.fix(prompt_for(task))
+            report = agent.fix(PERSONA + "\n\n" + prompt_for(task))
         content = project_files(workspace)
         result = redact_data(report.to_dict())
         result["task"] = task["task"]

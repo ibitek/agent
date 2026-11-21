@@ -9,6 +9,7 @@ from .preview import build_preview
 from .file_actions import apply, operations, compact_action, UnsafeFileOperation
 from .native_tools import NativeSession, NativeProtocolError, prompt as native_prompt
 from .loop_guard import LoopGuard, STRATEGY
+from .persona import PERSONA
 
 SYSTEM = '''Build the requested static website using plain HTML, CSS and JavaScript.
 Return one JSON object per turn: {"action":"write","path":"index.html","content":"full file text"},
@@ -38,7 +39,7 @@ APP_SYSTEM = SYSTEM.replace('Build the requested static website using plain HTML
     'Use root package.json with a build script set to vite build, root index.html and src/main.jsx. '
     'index.html must load src/main.jsx with a module script and contain the exact mount ID used by main.jsx. '
     'For React 19 use createRoot from react-dom/client; never ReactDOM.render. '
-    'For new projects use react and react-dom 19.1.1 and vite 6.4.6. Preserve existing project dependencies unless a change is required by the request. Import React in JSX files. '
+    'Use installed project dependencies. If no manifest is provided use react and react-dom 19.1.1 and vite 6.4.6. Import React in JSX files. '
     'No remote assets, external APIs, secrets, backend services or browser storage requirements. '
     'The system compiles saved application source in a separate isolated build. Do not claim you ran a build or tests.')
 
@@ -52,9 +53,19 @@ def build(store, task, baseline, engine):
     files = dict(baseline)
     application = task.get('runtime') == 'app'
     source_only = task.get('runtime') == 'source'
-    messages = [Message(role=Role.SYSTEM, content=SOURCE_SYSTEM if source_only else APP_SYSTEM if application else SYSTEM), Message(role=Role.USER, content=prompt_for(task))]
+    seeded = False
+    system = SOURCE_SYSTEM if source_only else APP_SYSTEM if application else SYSTEM
+    if application and not saved.get("messages"):
+        from .dev_environment import seed
+
+        files, seeded = seed(task, baseline)
+        if seeded:
+            system += "\nThe installed starter already has matching React, Vite, Tailwind and shadcn/ui dependencies. Keep its package and lockfile. Reuse the installed components and replace the starter page with the requested site."
+    messages = [Message(role=Role.SYSTEM, content=system), Message(role=Role.USER, content=prompt_for(task))]
     if saved.get("messages"):
         messages = [Message(role=Role(item["role"]),content=item["content"]) for item in saved["messages"]]
+    if not messages[0].content.startswith(PERSONA):
+        messages[0].content = PERSONA + "\n" + messages[0].content
     native = NativeSession(saved.get('native_tool_state')) if getattr(engine, 'supports_native_tools', False) else None
     if native:
         if saved.get('native_tool_model', task['model']) != task['model']:
@@ -161,6 +172,8 @@ def build(store, task, baseline, engine):
             if application:
                 from .app_build import validate_app
                 try:
+                    if seeded and not changed:
+                        raise ValueError('The starter is unchanged. Implement the requested page before finishing.')
                     validate_app(files)
                 except ValueError as exc:
                     hint = repair_failure('application_validation', str(exc))
