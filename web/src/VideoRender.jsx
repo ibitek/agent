@@ -9,7 +9,7 @@ const currency = new Intl.NumberFormat('en-US', {
 })
 const asUSD = value => currency.format(Number(value))
 
-export default function VideoRender({ active, boardId, scene, ratio, revision, dirty, hasPrevious }) {
+export default function VideoRender({ active, boardId, scene, ratio, revision, dirty, hasPrevious, imageCount }) {
   const endpoint = '/api/video-studio/' + boardId + '/scenes/' + scene.id + '/render'
   const [catalog, setCatalog] = useState(null)
   const [modelId, setModelId] = useState('')
@@ -30,7 +30,6 @@ export default function VideoRender({ active, boardId, scene, ratio, revision, d
     getJSON('/api/video-renderers', { signal: controller.signal }).then(result => {
       if (!controller.signal.aborted) {
         setCatalog(result)
-        setModelId(value => result.models.some(model => model.id === value) ? value : result.models[0]?.id || '')
       }
     }).catch(cause => {
       if (!controller.signal.aborted) setError(cause.message)
@@ -64,17 +63,23 @@ export default function VideoRender({ active, boardId, scene, ratio, revision, d
     return () => { controller.abort(); clearTimeout(timer) }
   }, [active, endpoint, pollVersion])
 
-  const model = catalog?.models.find(item => item.id === modelId)
+  const model = catalog?.models.find(item => item.id === modelId) ||
+    catalog?.models.find(item => (item.supports_multiple_images || imageCount <= 1) &&
+      item.ratios.includes(ratio) && item.durations.includes(scene.duration)) || catalog?.models[0]
   const supported = model?.ratios.includes(ratio) && model.durations.includes(scene.duration)
-  const price = Number(model?.rates[resolution] || 0) * scene.duration
+  const supportsInput = model && (model.supports_multiple_images || imageCount <= 1)
+  const outputRate = Number(model?.rates[resolution] || 0)
+  const imageCost = Number(model?.image_input_rate_usd || 0) * imageCount
+  const price = outputRate ? outputRate * scene.duration + imageCost : 0
   const activeRender = activeStates.includes(render?.status)
 
   async function submit(event) {
     event.preventDefault()
-    if (!model || !supported || !price || dirty || submitting || activeRender || !statusLoaded || !catalog.connected) return
+    if (!model || !supported || !supportsInput || !scene.direction.trim() || !price || dirty ||
+      submitting || activeRender || !statusLoaded || !catalog.connected) return
     setSubmitting(true)
     setError('')
-    const options = { revision, model: model.id, resolution, estimate_usd: price.toFixed(6), include_previous: includePrevious }
+    const options = { revision, model: model.id, resolution, estimate_usd: price.toFixed(9), include_previous: includePrevious }
     const key = JSON.stringify(options)
     if (pendingRequest.current?.key !== key) pendingRequest.current = { key, id: crypto.randomUUID().replaceAll('-', '') }
     try {
@@ -123,7 +128,7 @@ export default function VideoRender({ active, boardId, scene, ratio, revision, d
       </div>
       {model && <div className="video-render-settings">
         <label className="video-field">Model
-          <select value={modelId} disabled={submitting || activeRender} onChange={event => setModelId(event.target.value)}>
+          <select value={model.id} disabled={submitting || activeRender} onChange={event => setModelId(event.target.value)}>
             {catalog.models.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}
           </select>
         </label>
@@ -138,12 +143,18 @@ export default function VideoRender({ active, boardId, scene, ratio, revision, d
           onChange={event => setIncludePrevious(event.target.checked)} />Include previous scene description
       </label>}
       {model && !supported && <p>This model needs a supported ratio and duration.</p>}
+      {model && !supportsInput && <p>This model takes one starting image. Choose Wan to use separate character and frame references.</p>}
+      {model?.follows_input_aspect_ratio && imageCount === 1 && <p>The clip follows the starting image's aspect ratio.</p>}
+      {!!price && !!supportsInput && <p>
+        {scene.duration}s × {asUSD(outputRate)}/s{imageCost > 0 && ' + ' + asUSD(imageCost) + ' image input'}
+      </p>}
       {catalog && !catalog.connected && <p>Connect Vercel AI Gateway to render video.</p>}
       {dirty && <p>Save the storyboard to render its current version.</p>}
       {render && <div className="video-render-status" role="status">
         <strong>{{starting:'Submitting render…', pending:'Rendering in the background', completed:'Render ready',
           failed:'Render failed', unconfirmed:'Submission unconfirmed'}[render.status]}</strong>
         <span>{render.duration}s · {render.resolution} · Estimated {asUSD(render.estimate_usd)}</span>
+        {Number(render.image_input_cost_usd) > 0 && <span>Includes {asUSD(render.image_input_cost_usd)} image input</span>}
         {render.error && <p>{render.error}</p>}
         {render.can_resume && <button type="button" className="video-button" disabled={submitting || !catalog?.connected} onClick={resume}>
           <RefreshCw size={14} />Resume same render
@@ -155,7 +166,8 @@ export default function VideoRender({ active, boardId, scene, ratio, revision, d
       {statusError && <p role="alert">{statusError}</p>}
       {error && <p role="alert">{error}</p>}
       <button type="submit" className="video-button primary"
-        disabled={!catalog?.connected || !supported || !price || !scene.direction.trim() || dirty || submitting || activeRender || !statusLoaded}>
+        disabled={!catalog?.connected || !supported || !supportsInput || !price || !scene.direction.trim() ||
+          dirty || submitting || activeRender || !statusLoaded}>
         <Play size={14} />{submitting ? 'Submitting…' : price ? 'Render · est. ' + asUSD(price) : 'Render scene'}
       </button>
     </form>

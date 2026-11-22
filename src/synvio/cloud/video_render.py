@@ -21,11 +21,16 @@ from .video_studio import BoardKey, Storyboard
 
 router = APIRouter(prefix="/api")
 BASE = "https://ai-gateway.vercel.sh"
+GROK_LITE = "spacexai/grok-imagine-video-1.5-lite"
 MODEL_NAMES = {
+    GROK_LITE: "Grok Imagine Video 1.5 Lite",
     "alibaba/wan-v3.0-video": "Wan 3.0 Video",
     "alibaba/wan-v3.0-video-prime": "Wan 3.0 Video Prime",
 }
-RESOLUTIONS = ("480p", "720p", "1080p")
+# The public Gateway metadata lists duration rates. SpaceX documents the
+# separate image input fee at https://docs.x.ai/developers/models/grok-imagine-video-1.5-lite.
+IMAGE_INPUT_RATES = {GROK_LITE: Decimal("0.01")}
+RESOLUTIONS = {"480p": "854x480", "720p": "1280x720", "1080p": "1920x1080"}
 ACTIVE = {"starting", "pending", "unconfirmed"}
 RESUME_SECONDS = 45 * 60
 SceneKey = Annotated[str, Path(pattern=r"^[a-f0-9]{32}$")]
@@ -37,12 +42,12 @@ class RenderRequest(BaseModel):
     revision: str = Field(pattern=r"^[a-f0-9]{64}$")
     model: str = Field(min_length=1, max_length=80)
     resolution: Literal["480p", "720p", "1080p"] = "480p"
-    estimate_usd: Decimal = Field(gt=0, le=100, max_digits=9, decimal_places=6)
+    estimate_usd: Decimal = Field(gt=0, le=100, max_digits=12, decimal_places=9)
     include_previous: bool = True
 
 
 async def available_models(store):
-    cached = store.get_json("video-models", "current")
+    cached = store.get_json("video-models", "input-rates-v1")
     if cached:
         return cached
     try:
@@ -58,12 +63,19 @@ async def available_models(store):
                      for item in entry["pricing"]["video_duration_pricing"] if item.get("resolution") in RESOLUTIONS}
             if rates:
                 caps = entry["video_capabilities"]
-                models[model] = {"id": model, "label": MODEL_NAMES[model], "rates": rates,
-                                 "ratios": caps["supported_aspect_ratios"], "durations": caps["supported_durations_seconds"]}
+                operations = caps.get("supported_operations", [])
+                models[model] = {
+                    "id": model, "label": MODEL_NAMES[model], "rates": rates,
+                    "ratios": caps["supported_aspect_ratios"], "durations": caps["supported_durations_seconds"],
+                    "supports_multiple_images": model != GROK_LITE and "reference-to-video" in operations,
+                    "image_input_rate_usd": service_amount(IMAGE_INPUT_RATES.get(model, Decimal(0))),
+                    "follows_input_aspect_ratio": model == GROK_LITE,
+                }
     except (httpx.HTTPError, ArithmeticError, ValueError, TypeError, KeyError) as exc:
         raise HTTPException(503, "Current video prices could not be retrieved.") from exc
     if models:
-        store.put_json("video-models", "current", models, expiry=600)
+        models = {model: models[model] for model in MODEL_NAMES if model in models}
+        store.put_json("video-models", "input-rates-v1", models, expiry=600)
     return models
 
 
@@ -105,7 +117,7 @@ async def request_gateway(action, model, payload, request_id=None):
 
 def public_job(job):
     result = {key: job[key] for key in ("id", "status", "model", "resolution", "ratio", "duration", "estimate_usd",
-                                       "created_at", "video_url", "error") if key in job}
+                                       "image_input_cost_usd", "created_at", "video_url", "error") if key in job}
     result["can_resume"] = job["status"] == "unconfirmed" and time.time() - job["created_at"] < RESUME_SECONDS
     return result
 
@@ -159,32 +171,39 @@ def video_input(value: Annotated[str, Path(pattern=r"^[a-f0-9]{48}$")]):
     return Response(base64.b64decode(encoded), media_type=mime)
 
 
-def scene_payload(store, board, index, body):
+def scene_payload(store, board, index, body, model, cast):
     scene = board.scenes[index]
     directions = [scene.direction.strip()]
     references = []
     if body.include_previous and index > 0 and board.scenes[index - 1].direction.strip():
         directions.append("Previous scene, for continuity only: " + board.scenes[index - 1].direction.strip()[:750])
-    for character in board.characters:
-        if character.id not in scene.cast:
-            continue
+    single_image = None
+    for character in cast:
         line = "Character: " + (character.name.strip() or "unnamed")
         if character.reference:
-            references.append(reference_url(store, character.reference))
-            line += f" — match appearance from Image {len(references)}"
+            if model["supports_multiple_images"]:
+                references.append(reference_url(store, character.reference))
+                line += f" — match appearance from Image {len(references)}"
+            else:
+                single_image = reference_url(store, character.reference)
+                line += " — preserve this character's appearance from the opening image"
         if character.appearance.strip():
             line += ". Appearance: " + character.appearance.strip()
         if character.wardrobe.strip():
             line += ". Wardrobe: " + character.wardrobe.strip()
         directions.append(line)
-    payload = {"n": 1, "aspectRatio": board.ratio, "resolution": body.resolution, "duration": scene.duration}
+    payload = {"n": 1, "aspectRatio": board.ratio, "resolution": RESOLUTIONS[body.resolution], "duration": scene.duration}
     if scene.frame:
         frame = reference_url(store, scene.frame)
         if references:
             references.append(frame)
             directions.append(f"Use Image {len(references)} as the composition reference.")
         else:
-            payload["image"] = frame
+            single_image = frame
+    if single_image:
+        payload["image"] = single_image
+        if model["follows_input_aspect_ratio"]:
+            payload.pop("aspectRatio")
     if references:
         payload["inputReferences"] = references
     return {**payload, "prompt": "\n\n".join(directions)}
@@ -216,7 +235,12 @@ async def render_scene(value: BoardKey, scene_id: SceneKey, body: RenderRequest)
     model = (await available_models(store)).get(body.model)
     if not model or body.resolution not in model["rates"] or board.ratio not in model["ratios"] or scene.duration not in model["durations"]:
         raise HTTPException(422, "This model does not support the selected duration, ratio or resolution.")
-    amount = Decimal(model["rates"][body.resolution]) * scene.duration
+    cast = [character for character in board.characters if character.id in scene.cast]
+    image_count = int(bool(scene.frame)) + sum(bool(character.reference) for character in cast)
+    if image_count > 1 and not model["supports_multiple_images"]:
+        raise HTTPException(422, "This model takes one starting image. Choose Wan for a scene with multiple references.")
+    image_input_cost = Decimal(model["image_input_rate_usd"]) * image_count
+    amount = Decimal(model["rates"][body.resolution]) * scene.duration + image_input_cost
     if amount != body.estimate_usd:
         raise HTTPException(409, "The video estimate changed. Refresh the renderer prices and try again.")
     with submission_lock(store, scope, body.request_id):
@@ -233,10 +257,10 @@ async def render_scene(value: BoardKey, scene_id: SceneKey, body: RenderRequest)
             raise HTTPException(409, "This scene already has a render that is still being checked.")
         if not store.allow_paid_request():
             raise HTTPException(429, "Your daily request limit has been reached. No render was started.")
-        payload = scene_payload(store, board, index, body)
+        payload = scene_payload(store, board, index, body, model, cast)
         job = {"id": body.request_id, "request": request, "status": "starting", "model": body.model,
                "resolution": body.resolution, "ratio": board.ratio, "duration": scene.duration,
-               "estimate_usd": str(amount), "created_at": time.time()}
+               "estimate_usd": str(amount), "image_input_cost_usd": str(image_input_cost), "created_at": time.time()}
         store.put_json("video-submit-payload", job_key, payload, expiry=RESUME_SECONDS)
         store.put_json("video-job", job_key, job)
         store.put_json("video-latest", scope, job_key)

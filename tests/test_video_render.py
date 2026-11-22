@@ -16,9 +16,11 @@ SCENE_ID = "b" * 32
 RENDER = BOARD + "/scenes/" + SCENE_ID + "/render"
 
 
-def save_scene(client):
+def save_scene(client, *, single_reference=False):
     initial = client.get(BOARD).json()
     draft = storyboard()
+    if single_reference:
+        draft["characters"][0]["reference"] = None
     draft["scenes"].insert(0, {"id": "d" * 32, "title": "Outside", "direction": "Track the street at dawn."})
     draft["characters"].append({"id": "e" * 32, "name": "Excluded character", "reference": PNG})
     response = client.put(BOARD, json={"revision": initial["revision"], "storyboard": draft})
@@ -40,11 +42,22 @@ def gateway_stub(monkeypatch, *, unconfirmed=False):
         assert request.url.host == "ai-gateway.vercel.sh"
         captured.append(request)
         if request.url.path == "/v1/models":
-            return httpx.Response(200, json={"data": [{
-                "id": MODEL, "supported_specifications": ["v4"],
-                "video_capabilities": {"supported_aspect_ratios": ["9:16"], "supported_durations_seconds": [5]},
-                "pricing": {"video_duration_pricing": [{"resolution": "480p", "cost_per_second": "0.05"}]},
-            }]})
+            models = []
+            for model, rate, operations in (
+                (MODEL, "0.05", ["text-to-video", "image-to-video", "reference-to-video"]),
+                (video_render.GROK_LITE, "0.02", ["text-to-video", "image-to-video"]),
+            ):
+                models.append({
+                    "id": model, "supported_specifications": ["v4"],
+                    "video_capabilities": {
+                        "supported_aspect_ratios": ["9:16"], "supported_durations_seconds": [5],
+                        "supported_operations": operations,
+                    },
+                    "pricing": {"video_duration_pricing": [
+                        {"resolution": "480p", "cost_per_second": rate},
+                    ]},
+                })
+            return httpx.Response(200, json={"data": models})
         if request.url.path.endswith("/start"):
             if unconfirmed and sum(item.url.path.endswith("/start") for item in captured) == 1:
                 raise httpx.ReadTimeout("Test timeout", request=request)
@@ -62,7 +75,8 @@ def test_video_render_persists_job_for_later_poll_and_passes_only_selected_refer
     login(client)
     board_revision = save_scene(client)
     catalog = client.get("/api/video-renderers").json()
-    assert catalog["connected"] and catalog["models"][0]["rates"]["480p"] == "0.065000000"
+    assert catalog["connected"]
+    assert {model["id"]: model["rates"]["480p"] for model in catalog["models"]}[MODEL] == "0.065000000"
     body = {"revision": board_revision, "request_id": "3" * 32, "model": MODEL, "estimate_usd": "0.325"}
     first = client.post(RENDER, json=body)
     assert first.status_code == 202, first.text
@@ -73,6 +87,7 @@ def test_video_render_persists_job_for_later_poll_and_passes_only_selected_refer
     assert len(starts) == 1 and len(starts[0].headers["idempotency-key"]) == 64
     payload = json.loads(starts[0].content)
     assert payload["aspectRatio"] == "9:16"
+    assert payload["resolution"] == "854x480"
     assert "Navy coat" in payload["prompt"] and "Track the street at dawn." in payload["prompt"]
     assert "Excluded character" not in payload["prompt"]
     assert len(payload["inputReferences"]) == 2
@@ -110,3 +125,28 @@ def test_estimate_change_and_unconfirmed_submission_do_not_create_duplicate_jobs
     starts = [request for request in requests if request.url.path.endswith("/start")]
     assert len(starts) == 2 and starts[0].content == starts[1].content
     assert starts[0].headers["idempotency-key"] == starts[1].headers["idempotency-key"]
+
+
+def test_grok_lite_charges_one_opening_image_and_rejects_multiple_references(client, monkeypatch):
+    requests = gateway_stub(monkeypatch)
+    login(client)
+    revision = save_scene(client)
+    grok = client.get("/api/video-renderers").json()["models"][0]
+    assert grok["id"] == video_render.GROK_LITE
+    assert grok["rates"]["480p"] == "0.026000000"
+    assert grok["image_input_rate_usd"] == "0.013000000"
+    body = {"revision": revision, "request_id": "6" * 32, "model": grok["id"], "estimate_usd": "0.143"}
+    assert client.post(RENDER, json=body).status_code == 422
+
+    body["revision"] = save_scene(client, single_reference=True)
+    assert client.post(RENDER, json={**body, "estimate_usd": "0.13"}).status_code == 409
+    assert not any(request.url.path.endswith("/start") for request in requests)
+    response = client.post(RENDER, json=body)
+    assert response.status_code == 202, response.text
+    assert response.json()["estimate_usd"] == "0.143000000"
+    assert response.json()["image_input_cost_usd"] == "0.013000000"
+    start = next(request for request in requests if request.url.path.endswith("/start"))
+    payload = json.loads(start.content)
+    assert payload["image"]["type"] == "url"
+    assert "aspectRatio" not in payload and "inputReferences" not in payload
+    assert payload["resolution"] == "854x480"

@@ -168,6 +168,8 @@ export default function VideoStudio({ active, boardId, transfer, onTransfer, onD
   const character = draft.characters.find(item => item.id === characterId) || draft.characters[0]
   const duration = draft.scenes.reduce((seconds, item) => seconds + item.duration, 0)
   const sceneNumber = draft.scenes.indexOf(scene) + 1
+  const imageCount = scene ? Number(Boolean(scene.frame)) +
+    draft.characters.filter(item => scene.cast.includes(item.id) && item.reference).length : 0
   const patchScene = (id, changes) => setDraft(previous => ({
     ...previous, scenes: previous.scenes.map(item => item.id === id ? { ...item, ...changes } : item),
   }))
@@ -286,7 +288,7 @@ export default function VideoStudio({ active, boardId, transfer, onTransfer, onD
           </label>
         </header>
         {scene ? <VideoRender key={scene.id} active={active} boardId={boardId} scene={scene} ratio={draft.ratio}
-          revision={saved.revision} dirty={dirty || saving} hasPrevious={sceneNumber > 1} /> :
+          revision={saved.revision} dirty={dirty || saving} hasPrevious={sceneNumber > 1} imageCount={imageCount} /> :
           <div className="video-frame" data-ratio={draft.ratio}>
             <div className="video-frame-empty"><Film size={28} /><span>Add a scene to start your storyboard</span></div>
           </div>}
