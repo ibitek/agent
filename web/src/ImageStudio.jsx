@@ -1,8 +1,9 @@
 import { useRef, useState } from 'react'
-import { ArrowUpRight, Download, ImagePlus, Paperclip, Save, X } from 'lucide-react'
+import { ArrowUpRight, Download, ImagePlus, Paperclip, Save, Sparkles, X } from 'lucide-react'
 import { getJSON } from './api.js'
-import { imageTypes, makeProjectImage, readReferenceImage } from './imageAssets.js'
+import { imageTypes, makeProjectImage, prepareMaskedEdit, readReferenceImage } from './imageAssets.js'
 import ImageRegions, { describeImageEdits } from './ImageRegions.jsx'
+import GeneratedImages from './GeneratedImages.jsx'
 import './imageStudio.css'
 
 const maxDrafts = 4
@@ -12,7 +13,8 @@ function sourceName(file) {
     .replace(/^-+|-+$/g, '').slice(0, 64) || 'reference-image'
 }
 
-export default function ImageStudio({ taskId, runtime, conversationId, locked, onSave, onOpenFile, onOpenLive, onAttach, draft, onDraftChange }) {
+export default function ImageStudio({ taskId, runtime, conversationId, locked, onSave, onOpenFile, onOpenLive,
+  onAttach, draft, onDraftChange, onGenerate, generatedImages, onEditGeneratedImage }) {
   const input = useRef(null)
   const reading = useRef(false)
   const { items = [], activeId } = draft || {}
@@ -21,13 +23,18 @@ export default function ImageStudio({ taskId, runtime, conversationId, locked, o
   const [isOver, setIsOver] = useState(false)
   const [busy, setBusy] = useState(false)
   const [loadingImages, setLoadingImages] = useState(false)
+  const [generating, setGenerating] = useState(false)
+  const [generationPrompt, setGenerationPrompt] = useState('')
+  const [size, setSize] = useState('1024x1024')
+  const [variants, setVariants] = useState(1)
+  const [quality, setQuality] = useState('medium')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [saved, setSaved] = useState(null)
   const nameValid = /^[a-z0-9_-]{1,64}$/i.test(name)
   const directory = runtime === 'app' ? 'public/images' : 'images'
   const editBrief = describeImageEdits(notes, regions)
-  const working = busy || loadingImages
+  const working = busy || loadingImages || generating
 
   function update(changes) {
     onDraftChange({ items: items.map(item => item.id === activeId ? { ...item, ...changes } : item), activeId })
@@ -41,7 +48,7 @@ export default function ImageStudio({ taskId, runtime, conversationId, locked, o
   }
 
   async function load(files) {
-    if (!files.length || busy || reading.current) return
+    if (!files.length || working || reading.current) return
     if (files.length + items.length > maxDrafts) {
       setError('Keep up to four image drafts in this Studio.')
       return
@@ -103,6 +110,27 @@ export default function ImageStudio({ taskId, runtime, conversationId, locked, o
       setError(cause.message)
     } finally {
       setBusy(false)
+    }
+  }
+
+  async function renderImages(event) {
+    event.preventDefault()
+    const prompt = image ? editBrief : generationPrompt.trim()
+    if (!prompt || locked || working || reading.current) return
+    setGenerating(true)
+    setError('')
+    try {
+      const source = image ? await prepareMaskedEdit(image.url, regions) : null
+      if (source && [source.image, source.mask].some(value => value && value.length > 1_398_200)) {
+        throw new Error('The source image is too large to send after preparing the selection.')
+      }
+      const result = await onGenerate(prompt, source ? [source.image] : [],
+        { variants, size, quality, mask: source?.mask })
+      if (result !== true) setError(typeof result === 'string' ? result : 'Could not start this image request.')
+    } catch (cause) {
+      setError(cause.message)
+    } finally {
+      setGenerating(false)
     }
   }
 
@@ -182,6 +210,38 @@ export default function ImageStudio({ taskId, runtime, conversationId, locked, o
           <p>The project copy may be resized to fit. The original stays available to download.</p>}
       </form>
     </>}
+    <form className="image-studio-render" onSubmit={renderImages}>
+      {!image && <label>Describe an image
+        <textarea rows={3} value={generationPrompt} maxLength={4000} disabled={working}
+          placeholder="Describe the subject, composition, and style." onChange={event=>setGenerationPrompt(event.target.value)} />
+      </label>}
+      <div className="image-studio-render-controls">
+        <label>Format
+          <select value={size} disabled={working} onChange={event=>setSize(event.target.value)}>
+            <option value="1024x1024">Square</option><option value="1536x1024">Landscape</option><option value="1024x1536">Portrait</option>
+          </select>
+        </label>
+        <label>Quality
+          <select value={quality} disabled={working} onChange={event=>setQuality(event.target.value)}>
+            <option value="low">Low</option><option value="medium">Medium</option>
+          </select>
+        </label>
+        <label>Variants
+          <select value={variants} disabled={working} onChange={event=>setVariants(Number(event.target.value))}>
+            <option value="1">1</option><option value="2">2</option><option value="3">3</option>
+          </select>
+        </label>
+        <button className="image-studio-button primary" type="submit"
+          disabled={working || locked || !(image ? editBrief : generationPrompt.trim())}>
+          <Sparkles size={15} />{generating ? 'Rendering…' : image ? 'Generate edits' : 'Generate images'}
+        </button>
+      </div>
+      <p>GPT Image 2.5 Flare · Pay as you go. Usage appears with the conversation result.</p>
+    </form>
+    {!!generatedImages?.length && <section className="image-studio-results" aria-label="Recent image results">
+      <h3>Recent results</h3>
+      <GeneratedImages images={generatedImages} onEdit={onEditGeneratedImage} disabled={working || locked} />
+    </section>}
     {error && <p role="alert" className="work-error">{error}</p>}
     {notice && <p role="status">{notice}</p>}
     {saved && <div className="image-studio-saved">

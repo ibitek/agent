@@ -14,6 +14,37 @@ export function readReferenceImage(file) {
   })
 }
 
+export function generatedImageUrl(id) {
+  return '/api/media/images/' + encodeURIComponent(id)
+}
+
+export async function prepareMaskedEdit(imageUrl, regions) {
+  const selected = regions.filter(region => region.note.trim())
+  if (!selected.length) return { image: imageUrl }
+  const image = new Image()
+  image.src = imageUrl
+  await image.decode()
+  const scale = Math.min(1, 1280 / Math.max(image.naturalWidth, image.naturalHeight))
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, Math.round(image.naturalWidth * scale))
+  canvas.height = Math.max(1, Math.round(image.naturalHeight * scale))
+  const context = canvas.getContext('2d')
+  if (!context) throw new Error('This browser could not prepare the edit mask.')
+  context.fillStyle = '#fff'
+  context.fillRect(0, 0, canvas.width, canvas.height)
+  context.drawImage(image, 0, 0, canvas.width, canvas.height)
+  const source = canvas.toDataURL('image/jpeg', .8)
+  context.fillRect(0, 0, canvas.width, canvas.height)
+  for (const { x, y, width, height } of selected) {
+    const left = Math.floor(x * canvas.width)
+    const top = Math.floor(y * canvas.height)
+    const right = Math.ceil((x + width) * canvas.width)
+    const bottom = Math.ceil((y + height) * canvas.height)
+    context.clearRect(left, top, right - left, bottom - top)
+  }
+  return { image: source, mask: canvas.toDataURL('image/png') }
+}
+
 function wrapImage(dataUrl, width, height) {
   return '<svg xmlns="http://www.w3.org/2000/svg" width="' + width + '" height="' + height +
     '" viewBox="0 0 ' + width + ' ' + height + '"><image width="' + width + '" height="' + height +

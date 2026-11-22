@@ -16,6 +16,7 @@ from .persona import PERSONA
 from .metering import BudgetExceeded, MeteredEngine
 from .store import Store, ready
 from .images import Images, require_vision
+from . import image_generation
 
 router = APIRouter(prefix="/api")
 SYSTEM = PERSONA + """\nDefault to
@@ -47,6 +48,7 @@ class Send(BaseModel):
     message: str = Field(min_length=1, max_length=10000)
     model_id: str = "openai:low"
     model_budget_usd: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+    image_options: image_generation.ImageOptions | None = None
 
 
 def confirmation(message):
@@ -91,6 +93,18 @@ def general_draft(message):
         r"(?:e-?mail|letter|message|report|proposal|wiadomosc|list|raport|oferte)\b",
         intent_text(message),
     ))
+
+
+def requested_images(message):
+    text = intent_text(message)
+    if planning_only(message) or re.search(r"\b(?:save (?:it |them )?to|add (?:it |them )?to|zapisz (?:go |ja )?w|dodaj (?:go |ja )?do|do plikow)\b", text):
+        return None
+    request = re.match(
+        r"^(?:(?:can you|could you|czy mozesz|mozesz|please|prosze)\s+)*(?:generate|create|make|wygeneruj|stworz|zrob)\s+"
+        r"(?:(?:me|mi)\s+)?(?:(?:a|an|one|the)\s+|(?P<count>[1-3])\s+)?"
+        r"(?:images?|illustrations?|pictures?|obraz(?:y)?|grafik[ei]|ilustracj[ei]|zdjeci[ea])\b", text
+    )
+    return image_generation.ImageOptions(variants=int(request["count"] or 1)) if request else None
 
 
 def coding_request(message):
@@ -186,14 +200,17 @@ def files_for(store, conversation):
 @router.post("/assistant")
 async def send(body: Send):
     from .app import Task, create_task, tasks_ready
+    image_options = body.image_options or requested_images(body.message)
+    if image_options and body.model_budget_usd is not None:
+        raise HTTPException(422, "Image generation uses pay-as-you-go pricing and cannot run under a text-model budget.")
     try:
-        if body.images:
+        if body.images and image_options is None:
             require_vision(resolve_model(body.model_id), body.images)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     store = Store()
     value = body.conversation_id or body.request_id
-    fingerprint = hashlib.sha256(body.model_dump_json().encode()).hexdigest()
+    fingerprint = hashlib.sha256(body.model_dump_json(exclude={"image_options"} if body.image_options is None else None).encode()).hexdigest()
     cached = store.get_json("assistant-request", body.request_id)
     if cached:
         if cached.get("fingerprint") != fingerprint:
@@ -228,13 +245,23 @@ async def send(body: Send):
         polish = polish_context(conversation['messages'])
         confirmed = bool(approval and confirmation(body.message))
         route_cost = None
+        generated_images = []
         inspected = []
         automatic = body.model_id == AUTO_MODEL
         draft = automatic and general_draft(body.message)
         docs_topic = requested_topic(body.message)
         last_task = store.get(conversation['last_task_id']) if conversation.get('last_task_id') else None
         retry = bool(last_task and last_task['status'] in {'failed','paused'} and re.fullmatch(r'(?:try again|retry|resume|continue|kontynuuj|wznow|wznów|sprobuj jeszcze raz|spróbuj jeszcze raz)[.! ]*', body.message.casefold().strip()))
-        if greeting(body.message) and not body.images:
+        if image_options:
+            generated_images, route_cost = await image_generation.generate(
+                store, body.request_id, value, body.message, body.images, image_options
+            )
+            multiple = len(generated_images) > 1
+            text = ("Wygenerowałam obrazy." if multiple else "Wygenerowałam obraz.") if polish else (
+                "I generated the images." if multiple else "I generated the image."
+            )
+            action = {"action": "image", "text": text}
+        elif greeting(body.message) and not body.images:
             action = {"action": "reply", "text": "Cześć! W czym mogę pomóc?" if polish else local_reply()["content"]}
         elif confirmed:
             action = approval if isinstance(approval, dict) else {"action": "execute", "task": approval}
@@ -392,12 +419,14 @@ async def send(body: Send):
                     ) if task_model.startswith("codex:") else (
                         "Codex jest teraz niedostępny. Uruchamiam zadanie z GPT-4o mini." if polish else "Codex is unavailable for this workspace. Starting with GPT-4o mini."
                     )
-        elif kind == "reply":
+        elif kind in {"reply", "image"}:
             conversation.pop("pending_action", None)
         message = {"id": body.request_id + "-reply", "role": "assistant", "content": text, "kind": kind,
                    "confirmation": conversation.get("pending_action") if kind == "clarification" else None,
                    "task_id": created["id"] if created else last_task["id"] if kind=="build" else None, "inspection": inspected,
-                   "cost_record": route_cost, "local_response": route_cost is None, "created_at": time.time()}
+                   "cost_record": route_cost, "local_response": route_cost is None and kind != "image", "created_at": time.time()}
+        if generated_images:
+            message["generated_images"] = generated_images
         conversation["messages"].append(message)
         save()
         reply = {"conversation_id": value, "message": message, "task": created}
