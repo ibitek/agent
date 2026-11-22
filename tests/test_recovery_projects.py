@@ -138,6 +138,24 @@ def test_file_edits_cannot_escape_project_or_run_during_work(client):
     assert client.post(f'/api/tasks/{value}/project-files',json=body).status_code==422
 
 
+def test_project_asset_create_is_versioned_and_cannot_overwrite(client):
+    store, value = seeded(client, 'completed')
+    path = 'images/reference.svg'
+    image = '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>'
+    version = client.get(f'/api/tasks/{value}/project-files').json()['version']
+    request = {'request_id': '1' * 32, 'expected_version': version, 'operation': 'create',
+               'file': path, 'content': image}
+    response = client.post(f'/api/tasks/{value}/project-files', json=request)
+    assert response.status_code == 200, response.text
+    saved = response.json()
+    assert saved['model_calls'] == 0
+    assert path not in store.get_json('files', value)
+    revision = saved['id']
+    duplicate = {**request, 'request_id': '2' * 32, 'expected_version': saved['version'], 'content': 'replacement'}
+    assert client.post(f'/api/tasks/{revision}/project-files', json=duplicate).status_code == 409
+    assert store.get_json('files', revision)[path] == image
+
+
 def test_new_conversation_does_not_read_previous_global_project(client,monkeypatch):
     login(client);Store().put_json('project','default',{'private-project.txt':'OTHER PROJECT'})
     calls=assistant_engine(monkeypatch,[{'action':'list'},{'action':'reply','text':'New project.'}])

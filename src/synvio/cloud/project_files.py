@@ -46,7 +46,7 @@ def revisions(value:str):
 class Edit(BaseModel):
     request_id:str=Field(pattern=r'^[a-f0-9]{32}$')
     expected_version:str=Field(pattern=r'^[a-f0-9]{64}$')
-    operation:Literal['write','rename','delete','restore']
+    operation:Literal['write','create','rename','delete','restore']
     file:str=Field(default='',max_length=200)
     target:str=Field(default='',max_length=200)
     content:str=Field(default='',max_length=262144)
@@ -75,7 +75,10 @@ def edit(value:str,body:Edit):
             if candidate is None: raise ValueError('This revision has expired.')
         else:
             name=safe_path(body.file)
-            if body.operation=='write': candidate[name]=body.content
+            if body.operation in {'write','create'}:
+                if body.operation=='create' and name in candidate:
+                    raise HTTPException(409,'A file already exists at this path. Choose another name.')
+                candidate[name]=body.content
             else:
                 if name not in candidate: raise ValueError('File not found.')
                 if body.operation=='rename':
