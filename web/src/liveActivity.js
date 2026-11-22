@@ -12,7 +12,7 @@ export function activityItems(events = []) {
       if (event.success === false) { title = 'File operation failed'; state = 'error' }
       detail = path
     } else if (event.event === 'project_image_saved' && path && event.success === true) {
-      category = 'files'; title = 'Image saved to project'; detail = path; state = 'success'
+      category = 'files'; title = event.generated ? 'Generated image saved' : 'Image saved to project'; detail = path; state = 'success'
     } else if (event.event === 'command_started' || event.event === 'command_result') {
       category = 'commands'; detail = text(event.command)
       if (event.event === 'command_started') title = 'Command started'

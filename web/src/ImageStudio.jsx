@@ -28,6 +28,7 @@ export default function ImageStudio({ taskId, runtime, conversationId, locked, o
   const [size, setSize] = useState('1024x1024')
   const [variants, setVariants] = useState(1)
   const [quality, setQuality] = useState('medium')
+  const [saveToProject, setSaveToProject] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [saved, setSaved] = useState(null)
@@ -125,7 +126,7 @@ export default function ImageStudio({ taskId, runtime, conversationId, locked, o
         throw new Error('The source image is too large to send after preparing the selection.')
       }
       const result = await onGenerate(prompt, source ? [source.image] : [],
-        { variants, size, quality, mask: source?.mask })
+        { variants, size, quality, mask: source?.mask, save_to_project: saveToProject && Boolean(taskId) })
       if (result !== true) setError(typeof result === 'string' ? result : 'Could not start this image request.')
     } catch (cause) {
       setError(cause.message)
@@ -236,6 +237,11 @@ export default function ImageStudio({ taskId, runtime, conversationId, locked, o
           <Sparkles size={15} />{generating ? 'Rendering…' : image ? 'Generate edits' : 'Generate images'}
         </button>
       </div>
+      {taskId && <label className="image-studio-target">
+        <input type="checkbox" checked={saveToProject} disabled={working || locked}
+          onChange={event=>setSaveToProject(event.target.checked)} />
+        Save generated variants to project
+      </label>}
       <p>GPT Image 2.5 Flare · Pay as you go. Usage appears with the conversation result.</p>
     </form>
     {!!generatedImages?.length && <section className="image-studio-results" aria-label="Recent image results">

@@ -17,6 +17,7 @@ from .metering import BudgetExceeded, MeteredEngine
 from .store import Store, ready
 from .images import Images, require_vision
 from . import image_generation
+from .project_files import check_image_destination, save_generated_images
 
 router = APIRouter(prefix="/api")
 SYSTEM = PERSONA + """\nDefault to
@@ -97,14 +98,28 @@ def general_draft(message):
 
 def requested_images(message):
     text = intent_text(message)
-    if planning_only(message) or re.search(r"\b(?:save (?:it |them )?to|add (?:it |them )?to|zapisz (?:go |ja )?w|dodaj (?:go |ja )?do|do plikow)\b", text):
+    if planning_only(message) or re.search(r"\b(?:do not|don't|never|nie) (?:generate|create|make|wygeneruj|tworz|rob)\b", text):
         return None
+    project = re.search(
+        r"\b(?:do (?:tego )?projektu|do plikow(?: projektu)?|"
+        r"(?:zapisz|umiesc)(?: (?:ja|go|je))? w (?:tym )?projekcie|"
+        r"(?:save|add|put) (?:it |them )?(?:to|in) (?:the |this |my |current )?(?:project|workspace))\b",
+        text,
+    )
+    leaves_files_unchanged = re.search(r"\b(?:(?:do not|don't|never) (?:save|add|put)|nie (?:zapisuj|zapisz|dodawaj|dodaj))\b", text)
     request = re.match(
         r"^(?:(?:can you|could you|czy mozesz|mozesz|please|prosze)\s+)*(?:generate|create|make|wygeneruj|stworz|zrob)\s+"
-        r"(?:(?:me|mi)\s+)?(?:(?:a|an|one|the)\s+|(?P<count>[1-3])\s+)?"
-        r"(?:images?|illustrations?|pictures?|obraz(?:y)?|grafik[ei]|ilustracj[ei]|zdjeci[ea])\b", text
+        r"(?:(?:me|mi)\s+)?(?:do (?:tego )?projektu\s+)?(?:(?:a|an|one|the)\s+|(?P<count>[1-3])\s+)?"
+        r"(?:new\s+|now[aeoy]\s+)?"
+        r"(?:images?|illustrations?|pictures?|obraz(?:y)?|grafik[ei]|ilustracj[ei]|zdjeci[ea]|logos?|icons?|ikon[ey]|ban(?:n)?er)\b"
+        r"(?!\s+(?:processing|component|viewer|uploader|editor|gallery)\b)", text
     )
-    return image_generation.ImageOptions(variants=int(request["count"] or 1)) if request else None
+    if not request:
+        return None
+    # Requests to publish elsewhere stay in the ordinary assistant workflow.
+    if not project and not leaves_files_unchanged and re.search(r"\b(?:save (?:it |them )?to|add (?:it |them )?to|zapisz (?:go |ja )?w|dodaj (?:go |ja )?do)\b", text):
+        return None
+    return image_generation.ImageOptions(variants=int(request["count"] or 1), save_to_project=bool(project and not leaves_files_unchanged))
 
 
 def coding_request(message):
@@ -210,7 +225,10 @@ async def send(body: Send):
         raise HTTPException(422, str(exc)) from exc
     store = Store()
     value = body.conversation_id or body.request_id
-    fingerprint = hashlib.sha256(body.model_dump_json(exclude={"image_options"} if body.image_options is None else None).encode()).hexdigest()
+    excluded = {"image_options"} if body.image_options is None else (
+        {"image_options": {"save_to_project"}} if not body.image_options.save_to_project else None
+    )
+    fingerprint = hashlib.sha256(body.model_dump_json(exclude=excluded).encode()).hexdigest()
     cached = store.get_json("assistant-request", body.request_id)
     if cached:
         if cached.get("fingerprint") != fingerprint:
@@ -246,6 +264,8 @@ async def send(body: Send):
         confirmed = bool(approval and confirmation(body.message))
         route_cost = None
         generated_images = []
+        project_image_revision = None
+        project_image_paths = []
         inspected = []
         automatic = body.model_id == AUTO_MODEL
         draft = automatic and general_draft(body.message)
@@ -253,6 +273,9 @@ async def send(body: Send):
         last_task = store.get(conversation['last_task_id']) if conversation.get('last_task_id') else None
         retry = bool(last_task and last_task['status'] in {'failed','paused'} and re.fullmatch(r'(?:try again|retry|resume|continue|kontynuuj|wznow|wznów|sprobuj jeszcze raz|spróbuj jeszcze raz)[.! ]*', body.message.casefold().strip()))
         if image_options:
+            destination = check_image_destination(
+                store, last_task, image_options.variants, body.request_id
+            ) if image_options.save_to_project else None
             generated_images, route_cost = await image_generation.generate(
                 store, body.request_id, value, body.message, body.images, image_options
             )
@@ -260,6 +283,24 @@ async def send(body: Send):
             text = ("Wygenerowałam obrazy." if multiple else "Wygenerowałam obraz.") if polish else (
                 "I generated the images." if multiple else "I generated the image."
             )
+            if destination is not None:
+                try:
+                    project_image_revision, project_image_paths = save_generated_images(
+                        store, last_task, destination, generated_images, image_options.size
+                    )
+                except HTTPException as exc:
+                    prefix = " Wyniki są w czacie. Zapis do projektu się nie udał. " if polish else (
+                        " The results are in chat. The project save could not be completed. "
+                    )
+                    text += prefix + str(exc.detail)
+                else:
+                    text = "Grafiki zapisane w plikach projektu." if polish else "Saved the generated artwork in the project files."
+                # A manual edit in another tab may have updated this conversation during rendering.
+                conversation = get_conversation(store, value)
+                if project_image_revision:
+                    conversation["last_task_id"] = project_image_revision
+                    if last_task.get("project_id"):
+                        conversation["project_id"] = last_task["project_id"]
             action = {"action": "image", "text": text}
         elif greeting(body.message) and not body.images:
             action = {"action": "reply", "text": "Cześć! W czym mogę pomóc?" if polish else local_reply()["content"]}
@@ -423,9 +464,11 @@ async def send(body: Send):
             conversation.pop("pending_action", None)
         message = {"id": body.request_id + "-reply", "role": "assistant", "content": text, "kind": kind,
                    "confirmation": conversation.get("pending_action") if kind == "clarification" else None,
-                   "task_id": created["id"] if created else last_task["id"] if kind=="build" else None, "inspection": inspected,
+                   "task_id": created["id"] if created else last_task["id"] if kind=="build" else project_image_revision, "inspection": inspected,
                    "cost_record": route_cost, "local_response": route_cost is None and kind != "image", "created_at": time.time()}
-        if generated_images:
+        if project_image_revision:
+            message["project_images"] = project_image_paths
+        elif generated_images:
             message["generated_images"] = generated_images
         conversation["messages"].append(message)
         save()

@@ -123,6 +123,10 @@
 .image-studio-render-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
 .image-studio-render-controls select { padding: 8px; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
 .image-studio-render p { margin: 0; }
+.image-studio-render .image-studio-target { display: flex; align-items: center; gap: 7px; }
+.project-image-links { display: flex; flex-wrap: wrap; gap: 7px; padding: 4px 0; }
+.project-image-links button { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--accent); font: inherit; font-size: 12px; padding: 6px 9px; cursor: pointer; }
+.project-image-links button:hover { border-color: var(--accent-border); background: var(--accent-soft); }
 .generated-images { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr)); gap: 9px; margin: 8px 0; }
 .generated-images figure { margin: 0; min-width: 0; overflow: hidden; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); }
 .generated-images img { display: block; width: 100%; max-height: 460px; object-fit: contain; }

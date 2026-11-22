@@ -26,6 +26,7 @@ class ImageOptions(BaseModel):
     size: Literal["1024x1024", "1024x1536", "1536x1024"] = "1024x1024"
     quality: Literal["low", "medium"] = "medium"
     mask: str | None = Field(default=None, max_length=1_400_000)
+    save_to_project: bool = False
 
 
 def image_usage(data):
@@ -49,7 +50,7 @@ def image_usage(data):
 async def request_images(key, prompt, source_images, options):
     payload = {
         "model": MODEL, "prompt": prompt, "n": options.variants, "size": options.size,
-        "quality": options.quality, "output_format": "jpeg", "output_compression": 80,
+        "quality": options.quality, "output_format": "jpeg", "output_compression": 65 if options.save_to_project else 80,
         "background": "opaque",
     }
     action = "edits" if source_images else "generations"
