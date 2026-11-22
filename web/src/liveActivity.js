@@ -11,6 +11,8 @@ export function activityItems(events = []) {
       title = {dev_read_file:'Read file', dev_write_file:'Saved file', dev_delete_file:'Deleted file', dev_list_files:'Listed files'}[event.tool]
       if (event.success === false) { title = 'File operation failed'; state = 'error' }
       detail = path
+    } else if (event.event === 'project_image_saved' && path && event.success === true) {
+      category = 'files'; title = 'Image saved to project'; detail = path; state = 'success'
     } else if (event.event === 'command_started' || event.event === 'command_result') {
       category = 'commands'; detail = text(event.command)
       if (event.event === 'command_started') title = 'Command started'
@@ -34,6 +36,7 @@ export function activityItems(events = []) {
     } else return []
     return [{key: event.sequence ?? `${index}:${event.event}`, category, title, detail, output, state,
       time: typeof event.created_at === 'number' ? event.created_at : null,
-      path: category === 'files' && event.tool !== 'dev_delete_file' && event.success !== false ? path : ''}]
+      path: category === 'files' && event.tool !== 'dev_delete_file' && event.success !== false ? path : '',
+      imageSaved: event.event === 'project_image_saved'}]
   })
 }

@@ -151,6 +151,8 @@ def test_project_asset_create_is_versioned_and_cannot_overwrite(client):
     assert saved['model_calls'] == 0
     assert path not in store.get_json('files', value)
     revision = saved['id']
+    assert any(event['event'] == 'project_image_saved' and event['path'] == path
+               for event in store.events(revision))
     duplicate = {**request, 'request_id': '2' * 32, 'expected_version': saved['version'], 'content': 'replacement'}
     assert client.post(f'/api/tasks/{revision}/project-files', json=duplicate).status_code == 409
     assert store.get_json('files', revision)[path] == image

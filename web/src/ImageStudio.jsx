@@ -2,44 +2,76 @@ import { useRef, useState } from 'react'
 import { ArrowUpRight, Download, ImagePlus, Paperclip, Save, X } from 'lucide-react'
 import { getJSON } from './api.js'
 import { imageTypes, makeProjectImage, readReferenceImage } from './imageAssets.js'
+import ImageRegions, { describeImageEdits } from './ImageRegions.jsx'
 import './imageStudio.css'
 
-export default function ImageStudio({ taskId, runtime, conversationId, locked, onSave, onOpenFile, onAttach }) {
+const maxDrafts = 4
+
+function sourceName(file) {
+  return file.name.replace(/\.[^.]+$/, '').toLowerCase().replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '').slice(0, 64) || 'reference-image'
+}
+
+export default function ImageStudio({ taskId, runtime, conversationId, locked, onSave, onOpenFile, onOpenLive, onAttach, draft, onDraftChange }) {
   const input = useRef(null)
   const reading = useRef(false)
-  const [image, setImage] = useState(null)
-  const [name, setName] = useState('')
+  const { items = [], activeId } = draft || {}
+  const current = items.find(item => item.id === activeId)
+  const { image, name = '', notes = '', regions = [] } = current || {}
   const [isOver, setIsOver] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [loadingImages, setLoadingImages] = useState(false)
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
   const [saved, setSaved] = useState(null)
   const nameValid = /^[a-z0-9_-]{1,64}$/i.test(name)
   const directory = runtime === 'app' ? 'public/images' : 'images'
+  const editBrief = describeImageEdits(notes, regions)
+  const working = busy || loadingImages
 
-  async function load(file) {
-    if (!file || busy || reading.current) return
+  function update(changes) {
+    onDraftChange({ items: items.map(item => item.id === activeId ? { ...item, ...changes } : item), activeId })
+  }
+
+  function select(nextItems, nextId) {
+    onDraftChange({ items: nextItems, activeId: nextId })
+    setSaved(null)
+    setNotice('')
+    setError('')
+  }
+
+  async function load(files) {
+    if (!files.length || busy || reading.current) return
+    if (files.length + items.length > maxDrafts) {
+      setError('Keep up to four image drafts in this Studio.')
+      return
+    }
     reading.current = true
+    setLoadingImages(true)
     setError('')
     try {
-      const next = await readReferenceImage(file)
-      const preview = new Image()
-      preview.src = next.url
-      await preview.decode().catch(() => { throw new Error('The image could not be opened.') })
-      setImage(next)
-      setName(file.name.replace(/\.[^.]+$/, '').toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 64) || 'reference-image')
-      setSaved(null)
+      const incoming = await Promise.all(files.map(async file => {
+        const image = await readReferenceImage(file)
+        const preview = new Image()
+        preview.src = image.url
+        await preview.decode().catch(() => { throw new Error('Could not open ' + image.name + '.') })
+        return { id: crypto.randomUUID(), image, name: sourceName(file), notes: '', regions: [] }
+      }))
+      select([...items, ...incoming], incoming[0].id)
     } catch (cause) {
       setError(cause.message)
     } finally {
       reading.current = false
+      setLoadingImages(false)
     }
   }
 
   function paste(event) {
-    const item = Array.from(event.clipboardData.items).find(entry => entry.kind === 'file' && entry.type.startsWith('image/'))
-    if (!item) return
+    const files = Array.from(event.clipboardData.items).filter(entry => entry.kind === 'file' && entry.type.startsWith('image/'))
+      .map(entry => entry.getAsFile()).filter(Boolean)
+    if (!files.length) return
     event.preventDefault()
-    void load(item.getAsFile())
+    void load(files)
   }
 
   async function save(event) {
@@ -81,48 +113,68 @@ export default function ImageStudio({ taskId, runtime, conversationId, locked, o
         <p>Preview an image, add it to your project, or attach it to your next message.</p>
       </div>
     </header>
-    <input ref={input} hidden type="file" accept={imageTypes.join(',')} onChange={event => {
-      const file = event.target.files[0]
+    <input ref={input} hidden type="file" accept={imageTypes.join(',')} multiple onChange={event => {
+      const files = Array.from(event.target.files)
       event.target.value = ''
-      void load(file)
+      void load(files)
     }} />
-    <div className="image-studio-drop" data-dragging={isOver} onDragOver={event => {
+    <div className="image-studio-drop" data-loaded={!!image} data-dragging={isOver} onDragOver={event => {
       if (!event.dataTransfer.types.includes('Files')) return
       event.preventDefault()
       setIsOver(true)
     }} onDragLeave={() => setIsOver(false)} onDrop={event => {
       event.preventDefault()
       setIsOver(false)
-      void load(event.dataTransfer.files[0])
+      void load(Array.from(event.dataTransfer.files))
     }}>
-      {image ? <figure>
-        <img src={image.url} alt={image.name} />
-        <figcaption>{image.name}</figcaption>
-      </figure> : <div>
+      {!image && <div>
         <span className="image-studio-symbol"><ImagePlus size={24} /></span>
         <h3>Drop or paste an image</h3>
         <p>PNG or JPEG, up to 1 MB</p>
       </div>}
-      <button className="image-studio-button" type="button" autoFocus={!image} disabled={busy} onClick={() => input.current.click()}>
-        {image ? 'Replace image' : 'Choose image'}
+      <button className="image-studio-button" type="button" autoFocus={!image} disabled={working || items.length >= maxDrafts} onClick={() => input.current.click()}>
+        {loadingImages ? 'Opening images…' : image ? 'Add images' : 'Choose images'}
       </button>
     </div>
     {image && <>
+      <div className="image-studio-drafts" role="group" aria-label="Image drafts">
+        {items.map((item, index) => <button className="image-studio-button" key={item.id} type="button"
+          disabled={working} aria-pressed={item.id === activeId} aria-label={'Draft ' + (index + 1) + ': ' + item.name}
+          onClick={() => select(items, item.id)}>
+          <img src={item.image.url} alt="" /><span>{item.name}</span>
+        </button>)}
+      </div>
+      <ImageRegions key={activeId} image={image} regions={regions} disabled={working} onChange={value => update({ regions: value })} />
+      <label className="image-edit-notes">Overall edit
+        <textarea rows={3} value={notes} maxLength={1200} disabled={working} placeholder="Describe the overall changes you want."
+          onChange={event => update({ notes: event.target.value })} />
+      </label>
       <div className="image-studio-actions">
-        <button type="button" className="image-studio-button" disabled={locked || busy} onClick={() => setError(onAttach(image) || '')}>
-          <Paperclip size={15} />Attach to chat
+        <button type="button" className="image-studio-button" disabled={locked || working} onClick={() => {
+          const issue = onAttach(image, editBrief)
+          setError(issue || '')
+          setNotice(issue ? '' : editBrief ? 'Image and edit brief added to the chat draft.' : 'Image added to the chat draft.')
+        }}>
+          <Paperclip size={15} />{editBrief ? 'Add image and brief to chat' : 'Attach to chat'}
         </button>
         <a className="image-studio-button" href={image.url} download={image.name}><Download size={15} />Download original</a>
-        <button type="button" className="image-studio-button" disabled={busy} onClick={() => { setImage(null); setSaved(null); setError('') }}>
+        <button type="button" className="image-studio-button" disabled={working || items.length >= maxDrafts} onClick={() => {
+          const copy = { ...current, id: crypto.randomUUID(), name: name.slice(0, 58) + '-draft' }
+          select([...items, copy], copy.id)
+        }}>Duplicate draft</button>
+        <button type="button" className="image-studio-button" disabled={working} onClick={() => {
+          const remaining = items.filter(item => item.id !== activeId)
+          select(remaining, remaining[0]?.id)
+        }}>
           <X size={15} />Remove
         </button>
       </div>
       <form className="image-studio-save" onSubmit={save}>
         <label>Project asset name
-          <div><span>{directory}/</span><input aria-label="Project asset name" value={name} maxLength={64} disabled={busy}
-            onChange={event => { setName(event.target.value); setSaved(null) }} /><span>.svg</span></div>
+          <div><span>{directory}/</span><input aria-label="Project asset name" value={name} maxLength={64} disabled={working}
+            onChange={event => { update({ name: event.target.value }); setSaved(null) }} /><span>.svg</span></div>
         </label>
-        <button type="submit" className="image-studio-button primary" disabled={!taskId || locked || busy || !nameValid || !!saved}>
+        <button type="submit" className="image-studio-button primary" disabled={!taskId || locked || working || !nameValid || !!saved}>
           <Save size={15} />{busy ? 'Saving…' : 'Save to project'}
         </button>
         {!taskId ? <p>Open an existing project to save this image to its files.</p> : name && !nameValid ?
@@ -131,10 +183,14 @@ export default function ImageStudio({ taskId, runtime, conversationId, locked, o
       </form>
     </>}
     {error && <p role="alert" className="work-error">{error}</p>}
+    {notice && <p role="status">{notice}</p>}
     {saved && <div className="image-studio-saved">
       <p role="status">Saved <code>{saved.path}</code>{saved.resized && ' (resized to fit the project file limit)'}.</p>
       <button type="button" className="image-studio-button" onClick={() => onOpenFile(saved.revision, saved.path)}>
         Open in Code &amp; files<ArrowUpRight size={14} />
+      </button>
+      <button type="button" className="image-studio-button" onClick={() => onOpenLive(saved.revision)}>
+        View in Live<ArrowUpRight size={14} />
       </button>
     </div>}
   </section>

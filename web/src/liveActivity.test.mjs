@@ -57,3 +57,15 @@ test('terminal output is bounded and ANSI formatting is removed', () => {
   assert.ok(item.output.startsWith('Error'))
   assert.ok(!item.output.includes('\u001b'))
 })
+
+test('only recorded successful image saves become thumbnail entries', () => {
+  const items = activityItems([
+    {event:'project_image_saved', success:false, path:'images/failed.svg'},
+    {event:'project_image_saved', success:true, path:'images/saved.svg'},
+    {event:'tool_call', tool:'dev_write_file', success:true, path:'src/App.jsx'},
+  ])
+  assert.equal(items.length, 2)
+  assert.equal(items[0].imageSaved, true)
+  assert.equal(items[0].path, 'images/saved.svg')
+  assert.equal(items[1].imageSaved, false)
+})

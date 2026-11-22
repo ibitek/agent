@@ -103,6 +103,8 @@ def edit(value:str,body:Edit):
         published=True
         result={'id':new_id,'status':'completed','version':digest(candidate),'model_calls':0}
         store.put_json('file-edit',body.request_id,{'fingerprint':fingerprint,'result':result})
+        if body.operation == 'create' and name.lower().endswith('.svg') and body.content.lstrip().startswith('<svg '):
+            store.event(new_id, {'event': 'project_image_saved', 'path': name, 'success': True})
         store.event(new_id,{'event':'task_finished','status':'completed','success':True})
         if body.conversation_id:
             conversation=store.get_json('conversation',body.conversation_id)
