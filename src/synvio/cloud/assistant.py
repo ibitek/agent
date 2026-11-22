@@ -111,8 +111,14 @@ def wants_changes(message):
 
 
 def build_command(message):
-    text=re.sub(r"[.!?]","",intent_text(message)).strip()
-    return text in {'build','build preview','rebuild','rebuild preview','rebuild the preview','run the build','uruchom build','uruchom kompilacje','przebuduj','przebuduj podglad','zbuduj podglad'}
+    text = " ".join(intent_text(message).rstrip(".!?").split())
+    return bool(re.fullmatch(
+        r"(?:please |prosze )?(?:"
+        r"build|rebuild|(?:build|built|rebuild|compile|refresh) (?:the )?(?:app |application )?preview|"
+        r"run (?:the )?build|(?:uruchom|odpal) (?:build|kompilacje|podglad)|"
+        r"przebuduj(?: podglad)?|(?:zbuduj|skompiluj|odswiez) podglad)(?: please| prosze)?",
+        text,
+    ))
 
 
 def approved_instruction(messages):
@@ -237,6 +243,8 @@ async def send(body: Send):
             action = {'action': 'resume'} if store.get_json('checkpoint',last_task['id']) or store.get_json('files',last_task['id']) is not None else {'action': 'verify' if last_task.get('operation') == 'verify' else 'execute', 'task': original}
         elif build_command(body.message) and last_task:
             action={"action":"build"}
+        elif build_command(body.message):
+            action = {"action": "reply", "text": "Nie ma jeszcze zapisanego projektu do skompilowania." if polish else "There’s no saved project to build yet."}
         elif wants_changes(body.message) and not draft and docs_topic is None and (
             not automatic or coding_request(body.message)
         ):
@@ -316,7 +324,12 @@ async def send(body: Send):
         if kind == "build":
             from .app import BuildPreview, build_application_preview
             result=await build_application_preview(last_task['id'],BuildPreview(request_id=body.request_id))
-            text=("Uruchamiam kompilacje podgladu." if polish else "Building the application preview.") if result.get('status')=='building' else ("Podglad zostal skompilowany. To nie jest potwierdzenie testow w przegladarce." if polish else "The preview build is complete. Browser behavior has not been verified.")
+            if result.get('status') == 'ready':
+                text = "Podgląd jest gotowy w zakładce Preview." if polish else "The application is ready in Preview."
+            elif result.get('status') == 'building':
+                text = "Kompiluję podgląd z zapisanych plików." if polish else "Building the preview from saved files."
+            else:
+                text = "Kompilacja podglądu nie powiodła się. Zobacz szczegóły w zakładce Preview." if polish else "The preview build failed. Open Preview for details."
         if kind == "resume":
             from .recovery import Resume, resume
             recovered = resume(last_task['id'],Resume(request_id=body.request_id,model_budget_usd=body.model_budget_usd))

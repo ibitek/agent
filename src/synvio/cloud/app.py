@@ -365,7 +365,11 @@ async def run_worker(store, value, oidc_token=None):
         final = store.get(value)
         if final and final["status"] == "running":
             raise RuntimeError(f"The run exited without a report (code {code}).")
-        if os.environ.get("VERCEL") == "1" and final and final["status"] == "completed" and not final.get("pause_requested") and final.get("runtime") == "app" and final.get("operation") == "edit" and time.monotonic()-started < 100:
+        can_build = final and (
+            final["status"] == "completed" or
+            (final["status"] == "paused" and (final.get("report") or {}).get("preview_source_ready"))
+        )
+        if os.environ.get("VERCEL") == "1" and can_build and not final.get("pause_requested") and final.get("runtime") == "app" and final.get("operation") == "edit" and time.monotonic()-started < 100:
             try:
                 await build_application_preview(value,BuildPreview(request_id=value))
             except Exception as exc:
@@ -576,7 +580,7 @@ async def build_application_preview(value: str, body: BuildPreview):
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from None
     state = store.get_json('application-build', value, {})
-    if state.get('status') == 'ready' or state.get('request_id') == body.request_id:
+    if state.get('status') == 'ready' or (state.get('status') == 'building' and state.get('deadline', 0) > time.time()) or state.get('request_id') == body.request_id:
         return state
     cached=reuse_build(store,task,files)
     if cached: return cached

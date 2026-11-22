@@ -731,6 +731,40 @@ def test_application_build_is_owner_only_idempotent_and_keeps_model_quota(client
     assert store.allow_paid_request()
 
 
+@pytest.mark.parametrize("phrase, build_status", [
+    ("built the preview", "ready"),
+    ("build the preview", "ready"),
+    ("Zbuduj podgląd", "failed"),
+])
+def test_preview_commands_compile_saved_paused_work_without_a_model(client, monkeypatch, phrase, build_status):
+    login(client)
+    from synvio.cloud import app_build
+    store = cloud.get_store()
+    value = client.post('/api/tasks', json={'task': 'Build a React app', 'runtime': 'app'}).json()['id']
+    store.fields(value, status='paused')
+    store.put_json('files', value, {
+        'index.html': '<div id="root"></div><script type="module" src="/src/main.jsx"></script>',
+        'src/main.jsx': 'document.getElementById("root").textContent="Saved";',
+        'package.json': '{"scripts":{"build":"vite build"},"devDependencies":{"vite":"6.4.6"}}',
+    })
+    monkeypatch.delenv('OPENAI_API_KEY')
+
+    async def finish(store, task_id, request, files):
+        assert task_id == value
+        assert 'Saved' in files['src/main.jsx']
+        return {'status': build_status}
+
+    monkeypatch.setattr(app_build, 'build', finish)
+    response = client.post('/api/assistant', json={
+        'request_id': '6' * 32, 'message': phrase, 'parent_task_id': value,
+    })
+    assert response.status_code == 200, response.text
+    message = response.json()['message']
+    assert message['kind'] == 'build' and message['task_id'] == value
+    assert message['local_response']
+    assert ('failed' in message['content'] or 'powiodła' in message['content']) == (build_status == 'failed')
+
+
 def test_react_routing_uses_original_source_request_without_snapshot(client, monkeypatch):
     login(client)
     monkeypatch.setattr(cloud,'saved_snapshot',lambda store:None)

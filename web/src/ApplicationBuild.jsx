@@ -2,10 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import { Hammer, LoaderCircle } from 'lucide-react'
 import { getJSON } from './api.js'
 
-export default function ApplicationBuild({taskId,onReady}){
+export default function ApplicationBuild({taskId,revision,onReady}){
   const requestRef=useRef(null)
   const [state,setState]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState('')
-  useEffect(()=>{let cancelled=false;Promise.all([getJSON(`/api/tasks/${taskId}/build-preview`),getJSON(`/api/tasks/${taskId}`)]).then(([value,task])=>{if(!cancelled){setState(value);if(value.status==='building')requestRef.current=value.request_id;setBusy(value.status==='building');if(value.status==='not_started'&&task.status==='completed'&&task.runtime==='app'&&['edit','manual_edit'].includes(task.operation||'edit'))start(taskId)}}).catch(()=>{});return()=>{cancelled=true}},[taskId])
+  useEffect(()=>{let cancelled=false;Promise.all([getJSON(`/api/tasks/${taskId}/build-preview`),getJSON(`/api/tasks/${taskId}`)]).then(([value,task])=>{if(!cancelled){setState(value);if(value.status==='building')requestRef.current=value.request_id;setBusy(value.status==='building');const canCompile=task.status==='completed'||(task.status==='paused'&&task.report?.preview_source_ready);if(value.status==='not_started'&&canCompile&&!task.build_pending&&!task.pause_requested&&task.runtime==='app'&&['edit','manual_edit'].includes(task.operation||'edit'))start(taskId)}}).catch(()=>{});return()=>{cancelled=true}},[taskId,revision])
   useEffect(()=>{
     if(!busy)return
     let cancelled=false,timer

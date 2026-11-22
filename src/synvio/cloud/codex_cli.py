@@ -64,6 +64,7 @@ starter projects. Preserve an existing repository's stack. The starter is a foun
 not a finished result: replace its placeholder introduction with the actual requested product.
 When browser tooling is available, inspect the real page; save a screenshot at
 /vercel/sandbox/project/synvio-preview.png. Do not claim browser testing without doing it.
+Kaelia shows captured screenshots in Browser. Do not link to VM filesystem paths in your reply.
 Use OpenAI Docs MCP for relevant public API documentation. Send only generic
 technical queries and public documentation URLs, never project content or secrets.
 '''
@@ -302,10 +303,18 @@ async def run_async(store,task,baseline):
         task['runtime']='app';store.fields(task['id'],runtime='app')
     changed=[p for p in files if files[p]!=baseline.get(p)]
     cost=(store.get(task['id']) or {}).get('cost_record') or {'estimated_cost_usd':'0','calls':[]}
-    success=result.returncode==0 and not events.error and not no_changes
-    reason = 'codex_source_saved' if success else 'codex_no_changes' if no_changes else 'codex_paused'
+    preview_source_ready = False
+    if task['runtime'] == 'app' and last_screen_digest:
+        from .app_build import validate_app
+        try:
+            validate_app(files)
+            preview_source_ready = True
+        except ValueError:
+            pass
+    success=result.returncode==0 and not events.error and (not no_changes or preview_source_ready)
+    reason = 'codex_no_changes' if no_changes else 'codex_source_saved' if success else 'codex_paused'
     report={'task':task['task'],'success':success,'reason':reason,
-        'verification_level':'agent_reported','browser_verified':False,'tests':[],
+        'verification_level':'agent_reported','browser_verified':False,'preview_source_ready':preview_source_ready,'tests':[],
         'files_created':[p for p in changed if p not in baseline],'files_modified':[p for p in changed if p in baseline],
         'files_deleted':[p for p in baseline if p not in files],'cost_record':cost,'duration_seconds':time.monotonic()-started,
         'attempt_details':[{'final_answer':events.error or events.answer or public_error(ValueError(stderr.value[-1800:])) or 'Saved Codex source.'}]}
