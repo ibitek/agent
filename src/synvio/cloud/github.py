@@ -1,7 +1,9 @@
 """Owner GitHub App integration. Credentials stay on the API host, never in projects."""
 import asyncio
 import base64
+from difflib import unified_diff
 import hashlib
+from itertools import islice
 import json
 import os
 import re
@@ -130,6 +132,7 @@ async def import_repository(body:Import):
         try:
             store.put_json('files',value,files)
             store.put_json('baseline',value,files)
+            store.put_json('github-baseline',value,files,expiry=0)
             store.put_json('project',value,files,expiry=0)
             store.put_json('github-project',value,{'repository':repo,'repository_id':metadata['id'],'branch':branch,'commit_sha':sha,'tree_sha':tree_sha,'import_task_id':value,'retained':retained,'source_file_count':len([i for i in tree['tree'] if i['type']!='tree']),'modes':{i['path']:i['mode'] for i in editable}},expiry=0)
             store.put_json('thread-head',value,value)
@@ -157,12 +160,59 @@ class Publish(BaseModel):
     request_id:str=Field(pattern=r'^[a-f0-9]{32}$')
     title:str=Field(min_length=1,max_length=150)
 
+def publication_source(store, value):
+    if not re.fullmatch(r'[a-f0-9]{32}', value):
+        raise HTTPException(404, 'Project not found.')
+    task = store.get(value)
+    if not task or task['status'] in {'running','queued'}: raise HTTPException(409,'Choose a finished project revision.')
+    info = store.get_json('github-project', task.get('project_id') or task.get('thread_id', value))
+    if not info: raise HTTPException(404,'This project was not imported from GitHub.')
+    return info
+
+
+def publication_changes(store, value, info):
+    files = store.get_json('files', value)
+    baseline = store.get_json('github-baseline', info['import_task_id'])
+    if baseline is None:
+        baseline = store.get_json('baseline', info['import_task_id'])
+    if files is None or baseline is None:
+        raise HTTPException(409, 'The source snapshot expired. Import the repository again before publishing.')
+    retained = {item['path'] for item in info.get('retained', [])}
+    if retained.intersection(files):
+        raise HTTPException(409, 'A new editable file overlaps a retained repository path. Rename it before publishing.')
+    changes = {}
+    for path in sorted(files.keys() | baseline.keys()):
+        if path not in files:
+            changes[path] = 'deleted'
+        elif path not in baseline:
+            changes[path] = 'added'
+        elif baseline[path] != files[path]:
+            changes[path] = 'modified'
+    return files, baseline, changes
+
+
+@router.get('/projects/{value}/review')
+def review(value: str, file: str | None = None):
+    store = Store()
+    info = publication_source(store, value)
+    files, baseline, changes = publication_changes(store, value, info)
+    if file is None:
+        return {'files': [{'path': path, 'action': action} for path, action in changes.items()]}
+    if file not in changes:
+        raise HTTPException(404, 'This file has no changes in the selected revision.')
+    before = baseline.get(file, '').splitlines(keepends=True)
+    after = files.get(file, '').splitlines(keepends=True)
+    diff = unified_diff(before, after, '/dev/null' if file not in baseline else f'a/{file}',
+                        '/dev/null' if file not in files else f'b/{file}')
+    lines = list(islice(diff, 301))
+    excerpt = ''.join(line if line.endswith('\n') else line + '\n\\ No newline at end of file\n' for line in lines[:300])
+    return {'diff': excerpt[:16000], 'truncated': len(lines) > 300 or len(excerpt) > 16000}
+
+
 @router.post('/projects/{value}/pull-request')
 async def publish(value:str,body:Publish):
-    store=Store();task=store.get(value)
-    if not task or task['status'] in {'running','queued'}: raise HTTPException(409,'Choose a finished project revision.')
-    info=store.get_json('github-project',task.get('project_id') or task.get('thread_id',value))
-    if not info: raise HTTPException(404,'This project was not imported from GitHub.')
+    store=Store()
+    info = publication_source(store, value)
     fingerprint=hashlib.sha256((value+body.model_dump_json()).encode()).hexdigest()
     saved=store.get_json('github-publish',body.request_id) or {'fingerprint':fingerprint}
     if saved['fingerprint']!=fingerprint: raise HTTPException(409,'This publish identifier belongs to another change.')
@@ -171,16 +221,24 @@ async def publish(value:str,body:Publish):
     if not store.call('SET',lock,'1','NX','EX',240): raise HTTPException(409,'This pull request is being prepared.')
     def save(): store.put_json('github-publish',body.request_id,saved)
     try:
+        files, _, changed_paths = publication_changes(store, value, info)
+        if not changed_paths:
+            raise HTTPException(409, 'There are no source changes to publish.')
         token=await installation_token(info['repository_id'],write=True)
         if not token: raise HTTPException(409,'Connect a GitHub App with Contents and Pull requests write permissions before publishing.')
         repo=info['repository'];prefix='/repos/'+repo
-        files=store.get_json('files',value);baseline=store.get_json('baseline',info['import_task_id'])
-        if files is None or baseline is None: raise HTTPException(409,'The source snapshot expired. Import the repository again before publishing.')
-        retained={item['path'] for item in info.get('retained',[])}
-        if retained.intersection(files): raise HTTPException(409,'A new editable file overlaps a retained repository path. Rename it before publishing.')
-        changes=[{'path':safe_path(p),'mode':info.get('modes',{}).get(p,'100644'),'type':'blob','content':content} for p,content in files.items() if baseline.get(p)!=content]
-        changes += [{'path':safe_path(p),'mode':'100644','type':'blob','sha':None} for p in baseline if p not in files]
-        if not changes: raise HTTPException(409,'There are no source changes to publish.')
+        if not saved.get('branch'):
+            upstream = await api('GET', prefix + '/commits/' + quote(info['branch'], safe=''), token)
+            if upstream['sha'] != info['commit_sha']:
+                raise HTTPException(409, 'The base branch has moved on GitHub. Import its latest revision before publishing.')
+        changes = []
+        for path, action in changed_paths.items():
+            entry = {'path': safe_path(path), 'mode': info.get('modes', {}).get(path, '100644'), 'type': 'blob'}
+            if action == 'deleted':
+                entry['sha'] = None
+            else:
+                entry['content'] = files[path]
+            changes.append(entry)
         if not saved.get('tree'):
             saved['tree']=(await api('POST',prefix+'/git/trees',token,{'base_tree':info['tree_sha'],'tree':changes}))['sha'];save()
         if not saved.get('commit'):
