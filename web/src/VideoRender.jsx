@@ -9,7 +9,7 @@ const currency = new Intl.NumberFormat('en-US', {
 })
 const asUSD = value => currency.format(Number(value))
 
-export default function VideoRender({ active, boardId, scene, ratio, revision, dirty, hasPrevious, imageCount }) {
+export default function VideoRender({ active, boardId, scene, ratio, revision, dirty, hasPrevious, imageCount, batchRefresh }) {
   const endpoint = '/api/video-studio/' + boardId + '/scenes/' + scene.id + '/render'
   const [catalog, setCatalog] = useState(null)
   const [modelId, setModelId] = useState('')
@@ -61,7 +61,7 @@ export default function VideoRender({ active, boardId, scene, ratio, revision, d
     }
     void check()
     return () => { controller.abort(); clearTimeout(timer) }
-  }, [active, endpoint, pollVersion])
+  }, [active, endpoint, pollVersion, batchRefresh])
 
   const model = catalog?.models.find(item => item.id === modelId) ||
     catalog?.models.find(item => (item.supports_multiple_images || imageCount <= 1) &&

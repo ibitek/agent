@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowDown, ArrowUp, Film, ImagePlus, Plus, Save, Trash2, UsersRound } from 'lucide-react'
 import { getJSON } from './api.js'
 import { imageTypes, readReferenceImage } from './imageAssets.js'
+import VideoBatch from './VideoBatch.jsx'
 import VideoRender from './VideoRender.jsx'
 import './videoStudio.css'
 
@@ -71,6 +72,7 @@ export default function VideoStudio({ active, boardId, transfer, onTransfer, onD
   const [saved, setSaved] = useState(null)
   const [draft, setDraft] = useState(null)
   const [sceneId, setSceneId] = useState(null)
+  const [batchRefresh, setBatchRefresh] = useState(0)
   const [characterId, setCharacterId] = useState(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -199,6 +201,8 @@ export default function VideoStudio({ active, boardId, transfer, onTransfer, onD
     {error && <div className="video-error"><p role="alert">{error}</p>
       <button type="button" className="video-button" disabled={saving} onClick={() => load()}>Discard edits and reload</button>
     </div>}
+    {!!draft.scenes.length && <VideoBatch key={boardId} boardId={boardId} revision={saved.revision}
+      disabled={dirty || saving} onSubmitted={() => setBatchRefresh(value => value + 1)} />}
     <div className="video-layout">
       <div className="video-editor">
         <label className="video-field">Storyboard title
@@ -288,7 +292,7 @@ export default function VideoStudio({ active, boardId, transfer, onTransfer, onD
           </label>
         </header>
         {scene ? <VideoRender key={scene.id} active={active} boardId={boardId} scene={scene} ratio={draft.ratio}
-          revision={saved.revision} dirty={dirty || saving} hasPrevious={sceneNumber > 1} imageCount={imageCount} /> :
+          revision={saved.revision} dirty={dirty || saving} hasPrevious={sceneNumber > 1} imageCount={imageCount} batchRefresh={batchRefresh} /> :
           <div className="video-frame" data-ratio={draft.ratio}>
             <div className="video-frame-empty"><Film size={28} /><span>Add a scene to start your storyboard</span></div>
           </div>}

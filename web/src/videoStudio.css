@@ -83,3 +83,7 @@
   .video-studio *, .video-studio .video-button { transition: none; }
   .video-studio .video-button:hover:not(:disabled) { transform: none; }
 }
+
+.video-batch { margin-bottom: clamp(12px, 2vw, 26px); }
+.video-batch .video-card-heading { flex-wrap: wrap; }
+.video-batch ol { margin: 0; padding-inline-start: 22px; font-size: 13px; line-height: 1.7; }

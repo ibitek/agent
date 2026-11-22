@@ -150,3 +150,22 @@ def test_grok_lite_charges_one_opening_image_and_rejects_multiple_references(cli
     assert payload["image"]["type"] == "url"
     assert "aspectRatio" not in payload and "inputReferences" not in payload
     assert payload["resolution"] == "854x480"
+
+
+def test_storyboard_quote_confirms_whole_cost_and_submits_each_scene_once(client, monkeypatch):
+    requests = gateway_stub(monkeypatch)
+    login(client)
+    save_scene(client)
+    endpoint = BOARD + "/render-batch"
+    quote = client.get(endpoint).json()
+    assert quote["estimate_usd"] == "0.455000000"
+    assert [scene["model"] for scene in quote["scenes"]] == [video_render.GROK_LITE, MODEL]
+    assert client.post(endpoint, json={"quote": "1" * 64}).status_code == 409
+    assert not any(request.url.path.endswith("/start") for request in requests)
+    first = client.post(endpoint, json={"quote": quote["quote"]})
+    assert first.status_code == 202
+    assert [scene["status"] for scene in first.json()["scenes"]] == ["pending", "pending"]
+    assert client.post(endpoint, json={"quote": quote["quote"]}).json() == first.json()
+    starts = [request for request in requests if request.url.path.endswith("/start")]
+    assert len(starts) == 2
+    assert len({request.headers["idempotency-key"] for request in starts}) == 2

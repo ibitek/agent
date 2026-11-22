@@ -2,6 +2,7 @@
 import asyncio
 import base64
 import hashlib
+import json
 import os
 import secrets
 import time
@@ -34,7 +35,12 @@ RESOLUTIONS = {"480p": "854x480", "720p": "1280x720", "1080p": "1920x1080"}
 ACTIVE = {"starting", "pending", "unconfirmed"}
 RESUME_SECONDS = 45 * 60
 SceneKey = Annotated[str, Path(pattern=r"^[a-f0-9]{32}$")]
+BATCH_PATH = "/video-studio/{value}/render-batch"
 SCENE_PATH = "/video-studio/{value}/scenes/{scene_id}/render"
+
+
+class BatchRequest(BaseModel):
+    quote: str = Field(pattern=r"^[a-f0-9]{64}$")
 
 
 class RenderRequest(BaseModel):
@@ -209,6 +215,74 @@ def scene_payload(store, board, index, body, model, cast):
     return {**payload, "prompt": "\n\n".join(directions)}
 
 
+def scene_cast(board, scene):
+    return [character for character in board.characters if character.id in scene.cast]
+
+
+def scene_price(model, resolution, scene, image_count):
+    image_cost = Decimal(model["image_input_rate_usd"]) * image_count
+    return Decimal(model["rates"][resolution]) * scene.duration + image_cost, image_cost
+
+
+async def storyboard_quote(value, store):
+    saved = store.get_json("video-storyboard", value)
+    if not saved or not gateway.connected():
+        raise HTTPException(409, "Save a storyboard and connect AI Gateway before rendering.")
+    board = Storyboard.model_validate(saved["storyboard"])
+    if not board.scenes or any(not scene.direction.strip() for scene in board.scenes):
+        raise HTTPException(422, "Add directions to every scene before rendering the storyboard.")
+    models = await available_models(store)
+    rows = []
+    total = Decimal(0)
+    for index, scene in enumerate(board.scenes):
+        image_count = int(bool(scene.frame)) + sum(bool(character.reference) for character in scene_cast(board, scene))
+        candidates = [
+            (scene_price(model, "480p", scene, image_count)[0], model["id"])
+            for model in models.values()
+            if "480p" in model["rates"] and board.ratio in model["ratios"] and scene.duration in model["durations"]
+            and (image_count <= 1 or model["supports_multiple_images"])
+        ]
+        if not candidates:
+            raise HTTPException(422, f"No renderer supports scene {index + 1} at 480p with its current settings.")
+        amount, model_id = min(candidates)
+        rows.append({"id": scene.id, "title": scene.title, "model": model_id,
+                     "label": models[model_id]["label"], "estimate_usd": str(amount)})
+        total += amount
+    quote = hashlib.sha256(json.dumps([saved["revision"], rows], sort_keys=True).encode()).hexdigest()
+    return {"quote": quote, "revision": saved["revision"], "estimate_usd": str(total), "scenes": rows}
+
+
+@router.get(BATCH_PATH)
+async def quote_storyboard(value: BoardKey):
+    return await storyboard_quote(value, Store())
+
+
+@router.post(BATCH_PATH, status_code=202)
+async def render_storyboard(value: BoardKey, body: BatchRequest):
+    store = Store()
+    quote = await storyboard_quote(value, store)
+    if quote["quote"] != body.quote:
+        raise HTTPException(409, "The storyboard or its price changed. Get a fresh estimate.")
+
+    async def start(row):
+        request_id = hashlib.sha256((quote["revision"] + row["id"]).encode()).hexdigest()[:32]
+        job = store.get_json("video-job", value + ":" + row["id"] + ":" + request_id)
+        if not job:
+            try:
+                job = await render_scene(value, row["id"], RenderRequest(
+                    request_id=request_id, revision=quote["revision"], model=row["model"],
+                    estimate_usd=row["estimate_usd"],
+                ))
+            except HTTPException as exc:
+                return {"id": row["id"], "status": "blocked", "error": exc.detail}
+        return {"id": row["id"], **{field: job[field] for field in ("status", "error") if field in job}}
+
+    results = []
+    for index in range(0, len(quote["scenes"]), 4):
+        results.extend(await asyncio.gather(*(start(row) for row in quote["scenes"][index:index + 4])))
+    return {"scenes": results}
+
+
 @router.post(SCENE_PATH, status_code=202)
 async def render_scene(value: BoardKey, scene_id: SceneKey, body: RenderRequest):
     store = Store()
@@ -235,12 +309,11 @@ async def render_scene(value: BoardKey, scene_id: SceneKey, body: RenderRequest)
     model = (await available_models(store)).get(body.model)
     if not model or body.resolution not in model["rates"] or board.ratio not in model["ratios"] or scene.duration not in model["durations"]:
         raise HTTPException(422, "This model does not support the selected duration, ratio or resolution.")
-    cast = [character for character in board.characters if character.id in scene.cast]
+    cast = scene_cast(board, scene)
     image_count = int(bool(scene.frame)) + sum(bool(character.reference) for character in cast)
     if image_count > 1 and not model["supports_multiple_images"]:
         raise HTTPException(422, "This model takes one starting image. Choose Wan for a scene with multiple references.")
-    image_input_cost = Decimal(model["image_input_rate_usd"]) * image_count
-    amount = Decimal(model["rates"][body.resolution]) * scene.duration + image_input_cost
+    amount, image_input_cost = scene_price(model, body.resolution, scene, image_count)
     if amount != body.estimate_usd:
         raise HTTPException(409, "The video estimate changed. Refresh the renderer prices and try again.")
     with submission_lock(store, scope, body.request_id):
