@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowDown, ArrowUp, Film, ImagePlus, Plus, Save, Trash2, UsersRound } from 'lucide-react'
 import { getJSON } from './api.js'
 import { imageTypes, readReferenceImage } from './imageAssets.js'
+import VideoRender from './VideoRender.jsx'
 import './videoStudio.css'
 
 const sceneLimit = 12
@@ -65,7 +66,7 @@ function ReferenceControl({ value, label, onChange }) {
   </div>
 }
 
-export default function VideoStudio({ boardId, transfer, onTransfer, onDirtyChange }) {
+export default function VideoStudio({ active, boardId, transfer, onTransfer, onDirtyChange }) {
   const endpoint = '/api/video-studio/' + boardId
   const [saved, setSaved] = useState(null)
   const [draft, setDraft] = useState(null)
@@ -284,10 +285,11 @@ export default function VideoStudio({ boardId, transfer, onTransfer, onDirtyChan
             </select>
           </label>
         </header>
-        <div className="video-frame" data-ratio={draft.ratio}>
-          {scene?.frame ? <img src={scene.frame} alt={'Frame reference for ' + (scene.title || 'this scene')} /> :
-            <div className="video-frame-empty"><Film size={28} /><span>{scene ? 'Add a frame reference to this scene' : 'Add a scene to start your storyboard'}</span></div>}
-        </div>
+        {scene ? <VideoRender key={scene.id} active={active} boardId={boardId} scene={scene} ratio={draft.ratio}
+          revision={saved.revision} dirty={dirty || saving} hasPrevious={sceneNumber > 1} /> :
+          <div className="video-frame" data-ratio={draft.ratio}>
+            <div className="video-frame-empty"><Film size={28} /><span>Add a scene to start your storyboard</span></div>
+          </div>}
         {scene?.cast.length > 0 && <ul className="video-cast-preview" aria-label="Scene character references">
           {draft.characters.filter(item => scene.cast.includes(item.id)).map(item => <li key={item.id}>
             {item.reference ? <img src={item.reference} alt="" /> : <UsersRound size={18} />}

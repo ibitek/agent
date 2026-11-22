@@ -33,6 +33,7 @@ from .github import router as github_router
 from .image_generation import router as image_generation_router
 from .projects import router as projects_router
 from .video_studio import router as video_studio_router
+from .video_render import router as video_render_router
 from .dev_environment import router as developer_environment_router
 from .common import JOB_SECONDS, PROJECT, estimate, greeting, limits, local_reply, model_catalog, public_error, resolve_model, safe_path
 from .store import StorageUnavailable, Store, ready as storage_ready
@@ -53,6 +54,7 @@ app.include_router(github_router)
 app.include_router(image_generation_router)
 app.include_router(projects_router)
 app.include_router(video_studio_router)
+app.include_router(video_render_router)
 
 
 class Login(BaseModel):
@@ -95,7 +97,8 @@ def get_store():
 async def session_guard(request, call_next):
     try:
         proxy_request = request.method == "POST" and re.fullmatch(r"/api/codex-proxy/[a-f0-9]{32}/responses", request.url.path)
-        if not proxy_request and request.url.path not in {"/api/session", "/api/login", "/api/editor/config"}:
+        render_reference = request.method in {"GET", "HEAD"} and re.fullmatch(r"/api/video-input/[a-f0-9]{48}", request.url.path)
+        if not proxy_request and not render_reference and request.url.path not in {"/api/session", "/api/login", "/api/editor/config"}:
             auth.require(request)
         response = await call_next(request)
     except HTTPException as exc:

@@ -53,6 +53,14 @@
 .video-frame[data-ratio="9:16"] { aspect-ratio: 9 / 16; width: min(100%, 38vh); }
 .video-frame[data-ratio="1:1"] { aspect-ratio: 1; width: min(100%, 63vh); }
 .video-frame img { width: 100%; height: 100%; min-height: 0; object-fit: cover; }
+.video-frame video { width: 100%; height: 100%; min-height: 0; object-fit: contain; }
+.video-render-controls { display: grid; gap: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.video-render-settings { display: flex; flex-wrap: wrap; gap: 10px; }
+.video-continuity { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--soft); }
+.video-render-status { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; font-size: 12px; }
+.video-render-status span, .video-render-status p { color: var(--muted); }
+.video-render-status p { flex-basis: 100%; }
+.video-render-status a { text-decoration: none; }
 .video-frame-empty { display: grid; justify-items: center; gap: 10px; text-align: center; padding: 15px; font-size: 12px; }
 .video-cast-preview { display: flex; flex-wrap: wrap; }
 .video-cast-preview li {
