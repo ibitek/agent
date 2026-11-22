@@ -32,6 +32,7 @@ from .project_files import router as project_files_router
 from .github import router as github_router
 from .image_generation import router as image_generation_router
 from .projects import router as projects_router
+from .video_studio import router as video_studio_router
 from .dev_environment import router as developer_environment_router
 from .common import JOB_SECONDS, PROJECT, estimate, greeting, limits, local_reply, model_catalog, public_error, resolve_model, safe_path
 from .store import StorageUnavailable, Store, ready as storage_ready
@@ -51,6 +52,7 @@ app.include_router(project_files_router)
 app.include_router(github_router)
 app.include_router(image_generation_router)
 app.include_router(projects_router)
+app.include_router(video_studio_router)
 
 
 class Login(BaseModel):
