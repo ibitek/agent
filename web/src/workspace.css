@@ -59,3 +59,18 @@
 .reference-images{display:flex;gap:10px;padding:10px 12px 0}.reference-images>div{position:relative}.reference-images img{width:76px;height:58px;object-fit:cover;border:1px solid var(--border,#383b42);border-radius:9px}.reference-images button{position:absolute;right:-5px;top:-5px;display:grid;place-items:center;width:21px;height:21px;padding:0;border-radius:50%;background:#292c33;color:#fff;border:1px solid #565b66}
 
 .coding-env-title{display:flex;align-items:center;gap:9px}.coding-env-title>svg{color:var(--accent)}.coding-env-title>span{margin-left:auto;font-size:10px;color:var(--muted)}.coding-env-tools{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}.coding-env-tools small{padding:5px 8px;background:var(--accent-soft);border-radius:6px;color:var(--soft)}.coding-environment>button{display:flex;align-items:center;gap:8px;border:1px solid var(--accent-border);background:var(--accent-soft);color:var(--accent);padding:10px 14px;border-radius:10px;cursor:pointer;transition:background .18s,transform .18s}.coding-environment>button:hover:not(:disabled){transform:translateY(-1px)}.coding-environment>button:disabled{opacity:.65;cursor:default}@media(prefers-reduced-motion:reduce){.coding-environment>button{transition:none}.coding-environment>button:hover{transform:none}}
+
+.browser-workspace > .browser-tabs { margin-bottom: 12px; }
+.local-browser .browser-session-bar { padding: 12px 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.local-browser .browser-session-bar > span { color: var(--muted); margin-left: auto; font-size: 12px; }
+.local-browser .browser-session-bar > button, .local-browser-links button { display: inline-flex; align-items: center; gap: 7px; }
+.local-browser-content { margin: 12px; font-size: 13px; overflow-wrap: anywhere; }
+.local-browser-content h3 { font-size: 14px; margin: 0 0 8px; }
+.local-browser-content ul { padding-inline-start: 20px; margin: 0; }
+.local-browser-links li { margin-bottom: 6px; }
+.local-browser-links button { text-align: start; max-width: 100%; border: 1px solid var(--line); background: var(--surface); color: var(--text); padding: 6px 9px; border-radius: 8px; cursor: pointer; }
+.local-browser-links button:hover { background: var(--accent-soft); transition: background .15s ease; }
+
+.local-research-form { flex-wrap: wrap; }
+.local-research-form input { min-width: min(100%, 210px) !important; }
+.local-research-result { white-space: pre-wrap; }

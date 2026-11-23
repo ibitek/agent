@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Kaelia Local Browser",
+  "version": "0.2.0",
+  "minimum_chrome_version": "120",
+  "description": "Share one browser tab with your Kaelia workspace.",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "externally_connectable": { "matches": ["https://agents.synviocore.xyz/*"] },
+  "background": { "service_worker": "worker.js", "type": "module" },
+  "action": { "default_title": "Kaelia Local Browser", "default_popup": "popup.html" }
+}

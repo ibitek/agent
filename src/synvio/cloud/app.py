@@ -27,6 +27,7 @@ from .preview import build_preview
 from .editor import router as editor_router
 from .assistant import router as assistant_router
 from .browser_sessions import router as browser_router
+from .local_browser import router as local_browser_router
 from .recovery import router as recovery_router
 from .project_files import router as project_files_router
 from .github import router as github_router
@@ -48,6 +49,7 @@ app.include_router(editor_router)
 app.include_router(developer_environment_router)
 app.include_router(assistant_router)
 app.include_router(browser_router)
+app.include_router(local_browser_router)
 app.include_router(recovery_router)
 app.include_router(project_files_router)
 app.include_router(github_router)
