@@ -2,6 +2,16 @@ import { getJSON } from './api.js'
 
 export const researchSteps = 5
 
+export function localBrowserCommand(goal) {
+  const text = goal.trim()
+  const commands = [
+    [/^(?:show links|pokaz linki|pokaż linki)[.!]?$/iu, 'inspect'],
+    [/^(?:scroll down|przewin w dol|przewiń w dół)[.!]?$/iu, 'down'],
+    [/^(?:scroll up|przewin w gore|przewiń w górę)[.!]?$/iu, 'up'],
+  ]
+  return commands.find(([pattern]) => pattern.test(text))?.[1]
+}
+
 async function readPage(send, expected, signal) {
   for (let attempt = 0; attempt < 22; attempt += 1) {
     signal.throwIfAborted()

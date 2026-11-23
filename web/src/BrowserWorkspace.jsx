@@ -20,7 +20,7 @@ export default function BrowserWorkspace({ children, request, onRequestOpened })
         <Monitor size={14} />Local tab
       </button>
     </div>
-    <div hidden={view !== 'local'}><LocalBrowser prefill={prefill} /></div>
+    <div hidden={view !== 'local'}><LocalBrowser prefill={prefill} onView={setView} /></div>
     {view === 'cloud' && children}
   </div>
 }
