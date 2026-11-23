@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import json
+import os
 import time
 from typing import Annotated, Literal
 
@@ -88,6 +89,15 @@ def generate(body, store):
         return {"decision": action.model_dump(), "cost": meter.summary()["service_estimated_cost_usd"]}
 
 
+def research_configured():
+    return bool(os.environ.get("OPENAI_API_KEY", "").strip())
+
+
+@router.get("/status")
+def status():
+    return {"research_configured": research_configured()}
+
+
 @router.post("/next")
 async def next_step(body: BrowserStep):
     store = Store()
@@ -99,6 +109,8 @@ async def next_step(body: BrowserStep):
         if cached.get("fingerprint") == fingerprint and "result" in cached:
             return cached["result"]
         raise HTTPException(409, "This browser step was already sent and will not be charged again automatically.")
+    if not research_configured():
+        raise HTTPException(503, "Browser research requires an OpenAI API key configured on the server.")
     if not store.call("SET", store.key("local-browser-step-lock", body.request_id), "1", "NX", "EX", 86400):
         raise HTTPException(409, "This browser step was already sent and will not be charged again automatically.")
     if not store.allow_paid_request():

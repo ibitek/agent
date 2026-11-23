@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { ArrowDown, ArrowUp, Link2, Monitor, Pause, RefreshCw, Square } from 'lucide-react'
+import { getJSON } from './api.js'
 import { localBrowserCommand, researchTab, researchSteps } from './localResearch.js'
 
 function send(session, operation, args = {}) {
@@ -24,6 +25,7 @@ function send(session, operation, args = {}) {
 
 export default function LocalBrowser({ prefill, onView }) {
   const [extensionReady, setExtensionReady] = useState(false)
+  const [researchConfigured, setResearchConfigured] = useState(null)
   const [session, setSession] = useState(null)
   const [page, setPage] = useState(null)
   const [activity, setActivity] = useState([])
@@ -39,6 +41,14 @@ export default function LocalBrowser({ prefill, onView }) {
   const lastSession = useRef(null)
 
   useEffect(() => () => researchController.current?.abort(), [])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    getJSON('/api/local-browser/status', { signal: controller.signal })
+      .then(result => { if (!controller.signal.aborted) setResearchConfigured(result.research_configured) })
+      .catch(() => { if (!controller.signal.aborted) setResearchConfigured(false) })
+    return () => controller.abort()
+  }, [])
   useEffect(() => {
     if (!prefill) return
     researchController.current?.abort()
@@ -132,6 +142,7 @@ export default function LocalBrowser({ prefill, onView }) {
       scroll(localAction === 'down' ? 1 : -1)
       return
     }
+    if (!researchConfigured) return
     if (!paused || researchRun.current?.goal !== goal.trim()) {
       researchRun.current = { goal: goal.trim(), requests: 0, notes: [], sources: [], cost: 0, destination: null }
     }
@@ -189,10 +200,12 @@ export default function LocalBrowser({ prefill, onView }) {
       <form className="local-research-form" onSubmit={runResearch}>
         <input aria-label="Browser research request" placeholder="What should Kaelia find on this website?"
           maxLength={600} disabled={researching} value={goal} onChange={event => setGoal(event.target.value)} />
-        <button type="submit" disabled={busy || researching || !goal.trim()}>{localAction ? 'Run locally' : paused && researchRun.current?.goal === goal.trim() ? 'Resume' : 'Research tab'}</button>
+        <button type="submit" disabled={busy || researching || !goal.trim() || (!localAction && !researchConfigured)}>{localAction ? 'Run locally' : paused && researchRun.current?.goal === goal.trim() ? 'Resume' : 'Research tab'}</button>
         {researching && <button type="button" onClick={() => researchController.current?.abort()}><Pause size={14} />Pause</button>}
       </form>
-      <p className="browser-cost">“Show links” and “scroll down” run locally. Research sends visible page text to the configured AI provider and can use up to 5 model calls.</p>
+      <p className="browser-cost">{researchConfigured
+        ? 'Research sends visible page text to the configured model and can use up to 5 calls.'
+        : 'Model research requires an API key configured on the server.'} Try “Show links” or “Scroll down” to work locally.</p>
       {page && <div className="local-browser-content">
         <h3>{page.title || 'Shared tab'}</h3>
         {page.links.length ? <ul className="local-browser-links">

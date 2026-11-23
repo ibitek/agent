@@ -1,6 +1,7 @@
 import { tabControls } from "./tab-controls.js";
 
-const workspaceOrigin = "https://agents.synviocore.xyz";
+const workspacePattern = chrome.runtime.getManifest().host_permissions[0];
+const workspaceOrigin = workspacePattern.slice(0, -2);
 const lifetime = 10 * 60 * 1000;
 let queue = Promise.resolve();
 
@@ -43,7 +44,7 @@ chrome.runtime.onMessage.addListener((message, sender, callback) => {
         if (!target || !origin.startsWith("https://") || origin === workspaceOrigin) {
           throw new Error("Open the HTTPS page you want to share, then use the extension there.");
         }
-        const workspaces = await chrome.tabs.query({ currentWindow: true, url: workspaceOrigin + "/*" });
+        const workspaces = await chrome.tabs.query({ currentWindow: true, url: workspacePattern });
         const workspace = workspaces.sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0))[0];
         if (!workspace?.id) throw new Error("Open Kaelia in this browser window before sharing a tab.");
         await dismiss(previous);
