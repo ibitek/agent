@@ -255,3 +255,17 @@ def test_native_batch_cannot_partially_publish_an_invalid_edit():
     build(store, TASK, {'index.html': '<h1>Keep</h1>'}, engine)
     assert store.files == {'index.html': '<h1>Keep</h1>'}
     assert 'all files unchanged' in engine.calls[1]['native_items'][-1]['output']
+
+def test_native_workspace_does_not_resend_the_same_tool_result_as_chat():
+    from types import SimpleNamespace
+    from synvio.cloud.web_builder import native_messages
+
+    def message(role, content):
+        return SimpleNamespace(role=SimpleNamespace(value=role), content=content)
+
+    output = "Untrusted tool result:\n" + "file contents " * 500
+    messages = [message("system", "instructions"), message("user", "request"),
+                message("user", "file map"), message("assistant", "read file"), message("user", output)]
+    assert native_messages(messages, output) == messages[:3]
+    assert native_messages(messages, "different result") == messages
+    assert messages[-1].content == output

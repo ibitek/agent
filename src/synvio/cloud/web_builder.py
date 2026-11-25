@@ -46,6 +46,14 @@ APP_SYSTEM = SYSTEM.replace('Build the requested static website using plain HTML
 SOURCE_SYSTEM = SYSTEM.replace('Build the requested static website using plain HTML, CSS and JavaScript.', 'Edit the existing source repository according to the user request. Preserve its framework, language and dependencies.').replace('Use root index.html. No packages, servers, external scripts, imports or remote assets.', 'Do not convert the project to another framework. Read its existing manifests and relevant source first. You can edit text source and config files only; you cannot execute commands. Explicitly state that compilation and runtime tests were not run.')
 
 
+
+def native_messages(messages, last_result):
+    """The Responses API already gets the last tool call and its exact output."""
+    if (last_result and len(messages) >= 5 and messages[-1].role.value == "user"
+            and messages[-2].role.value == "assistant" and messages[-1].content == last_result):
+        return messages[:-2]
+    return messages
+
 def build(store, task, baseline, engine, *, check_stop=lambda: None):
     from openjarvis.core.types import Message, Role
     started = time.monotonic()
@@ -122,7 +130,8 @@ def build(store, task, baseline, engine, *, check_stop=lambda: None):
             action, pending = pending, None
         else:
             options = {'native_items': native.input_items()} if native else {'response_format': {"type": "json_object"}}
-            result = engine.generate(messages, model=task['model'], max_tokens=6000, temperature=0.2, **options)
+            inputs = native_messages(messages, native.state.get('result')) if native else messages
+            result = engine.generate(inputs, model=task['model'], max_tokens=6000, temperature=0.2, **options)
             check_stop()
             if native:
                 try:

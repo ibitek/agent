@@ -440,6 +440,23 @@ def test_auto_drafts_general_content_in_chat(client, monkeypatch):
     assert len(calls) == 1 and calls[0][1]["model"] == "gpt-4o-mini"
 
 
+
+def test_chat_skips_project_snapshot_and_preserves_the_full_current_message(client, monkeypatch):
+    from synvio.cloud import assistant
+
+    def unexpected_snapshot(*_):
+        pytest.fail("Chat without inspection should not read project files.")
+
+    login(client)
+    monkeypatch.setattr(assistant, "files_for", unexpected_snapshot)
+    calls = assistant_engine(monkeypatch, [{"action": "reply", "text": "Here is the summary."}])
+    current = "Summarize this text: " + "data " * 1300 + "Keep the last instruction."
+    reply = client.post("/api/assistant", json={"request_id": "a" * 32, "message": current})
+    assert reply.status_code == 200, reply.text
+    assert len(calls) == 1
+    assert calls[0][0][-1].content == current
+
+
 def test_openjarvis_documentation_context_reaches_metered_reply(client, monkeypatch):
     from synvio.cloud import assistant
 

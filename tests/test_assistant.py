@@ -35,3 +35,13 @@ def test_scope_restrictions_do_not_block_requested_implementation(text):
 @pytest.mark.parametrize('text',['okay start doing it','ok start working','start building','sure go ahead'])
 def test_natural_start_followups_are_confirmations(text):
     assert confirmation(text)
+
+def test_chat_history_is_bounded_even_with_multibyte_messages():
+    from synvio.cloud.assistant import HISTORY_BUDGET, bounded_history
+
+    items = [{"role": "user", "content": str(i) + "\u0105" * 6000} for i in range(20)]
+    chosen = list(bounded_history(items))
+    assert chosen[-1][1].startswith("19")
+    assert len(chosen) <= 11
+    assert sum(len(content.encode("utf-8")) for _, content in chosen) <= HISTORY_BUDGET
+    assert items[0]["content"].endswith("\u0105" * 6000)
